@@ -1,5 +1,5 @@
 [workspace]
-members = [ "crates/engine-ecs","crates/engine-macros", "crates/engine-memory"]
+members = ["crates/flux_ecs", "crates/flux_macros", "crates/flux_memory", "src/main"]
 resolver = "2"
 
 [workspace.dependencies]
