@@ -7,6 +7,7 @@ pub enum Region {
     Audio,
     Scene,
     General,
+    ECS,
 }
 
 thread_local! {

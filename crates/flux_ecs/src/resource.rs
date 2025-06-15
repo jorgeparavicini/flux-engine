@@ -74,12 +74,11 @@ impl<'a, T: Resource> SystemParam for Res<'a, T> {
 
     fn init_state(_: &mut World) -> Self::State {
         // No state needed for resources
-        ()
     }
 
     fn get_param<'world, 'state>(
         _: &'state Self::State,
-        world: &'world World,
+        world: &'world mut World,
     ) -> Self::Item<'world, 'state> {
         let resource = world.get_resource::<T>().expect("resource not found");
         Res::new(resource)

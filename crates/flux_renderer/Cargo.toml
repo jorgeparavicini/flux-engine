@@ -1,7 +1,6 @@
 [package]
-name = "flux-engine-ecs"
+name = "flux_renderer"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-variadics_please = "1.1.0"

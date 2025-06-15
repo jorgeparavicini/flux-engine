@@ -1,329 +1,209 @@
-use crate::component::{ComponentId, ComponentInfo, ComponentRegistry};
+use crate::component::{ComponentId, ComponentRegistry};
 use crate::entity::Entity;
-use bitvec::vec::BitVec;
+use std::alloc::Layout;
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::ptr::NonNull;
-use std::{
-    alloc::{self, Layout},
-    ops,
-};
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct ComponentSet {
-    bits: BitVec,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ArchetypeId(pub usize);
+
+pub struct Column {
+    data: Vec<u8>,
+    layout: Layout,
 }
 
-impl ComponentSet {
-    pub fn new() -> Self {
+impl Column {
+    pub fn new(layout: Layout) -> Self {
         Self {
-            bits: BitVec::new(),
+            data: Vec::new(),
+            layout,
         }
     }
 
-    pub fn insert(&mut self, id: ComponentId) {
-        if id >= self.bits.len() {
-            self.bits.resize(id + 1, false);
+    pub fn len(&self) -> usize {
+        if self.layout.size() == 0 {
+            return self.data.len();
         }
-        self.bits.set(id as usize, true);
+        self.data.len() / self.layout.size()
     }
 
-    pub fn contains(&self, id: ComponentId) -> bool {
-        id < self.bits.len() && self.bits[id as usize]
-    }
-
-    pub fn union(&self, other: &Self) -> Self {
-        let max_len = self.bits.len().max(other.bits.len());
-        let mut new_bits = self.bits.clone();
-        new_bits.resize(max_len, false);
-        for i in 0..other.bits.len() {
-            if other.bits[i] {
-                new_bits.set(i, true);
-            }
-        }
-
-        Self { bits: new_bits }
-    }
-
-    pub fn is_subset(&self, other: &Self) -> bool {
-        if self.bits.len() > other.bits.len() {
-            return false;
-        }
-        self.bits
-            .iter()
-            .enumerate()
-            .all(|(i, b)| !b || other.bits[i])
-    }
-}
-
-impl ops::BitOr for ComponentSet {
-    type Output = Self;
-
-    fn bitor(self, other: Self) -> Self::Output {
-        self.union(&other)
-    }
-}
-
-impl Hash for ComponentSet {
-    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        let bytes = self.bits.as_raw_slice();
-        bytes.hash(state);
-    }
-}
-
-pub(crate) struct ComponentColumn {
-    ptr: NonNull<u8>,
-    capacity: usize,
-    length: usize,
-    size: usize,
-    align: usize,
-}
-
-impl ComponentColumn {
-    fn with_capacity(size: usize, align: usize, capacity: usize) -> Self {
-        assert!(capacity > 0, "Capacity must be greater than zero");
-        let layout = Layout::from_size_align(size * capacity, align)
-            .expect("Invalid layout for component column");
-        let ptr = unsafe { alloc::alloc(layout) };
-
-        if ptr.is_null() {
-            alloc::handle_alloc_error(layout);
-        }
-
-        Self {
-            ptr: NonNull::new(ptr).expect("Failed to create NonNull pointer"),
-            capacity,
-            length: 0,
-            size,
-            align,
-        }
-    }
-
-    unsafe fn dealloc(&mut self) {
-        let layout = Layout::from_size_align(self.size * self.capacity, self.align)
-            .expect("Invalid layout for component column");
-        unsafe {
-            alloc::dealloc(self.ptr.as_ptr(), layout);
-        }
-        self.ptr = NonNull::dangling();
-        self.capacity = 0;
-        self.length = 0;
-    }
-
-    unsafe fn grow(&mut self) {
-        let new_capacity = self.capacity * 2;
-        let old_layout = Layout::from_size_align(self.size * self.capacity, self.align)
-            .expect("Invalid layout for component column");
-        let new_size = self.size * new_capacity;
-        let new_layout = Layout::from_size_align(new_size, self.align)
-            .expect("Invalid layout for component column");
-
-        let new_ptr = unsafe { alloc::realloc(self.ptr.as_ptr(), old_layout, new_size) };
-        if new_ptr.is_null() {
-            alloc::handle_alloc_error(new_layout);
-        }
-        self.ptr = NonNull::new(new_ptr).expect("Failed to create NonNull pointer");
-        self.capacity = new_capacity;
-    }
-
-    unsafe fn ptr_at(&self, index: usize) -> *mut u8 {
-        assert!(index < self.capacity, "Index out of bounds");
-        unsafe { self.ptr.as_ptr().add(index * self.size) }
-    }
-
-    unsafe fn push(&mut self, value: *const u8) {
-        if self.length == self.capacity {
+    pub unsafe fn push(&mut self, component_ptr: *const u8) {
+        let size = self.layout.size();
+        if size > 0 {
             unsafe {
-                self.grow();
+                let src_slice = std::slice::from_raw_parts(component_ptr, size);
+                self.data.extend_from_slice(src_slice);
             }
+        } else {
+            // For zero-sized types, we just push a placeholder
+            self.data.push(0);
         }
-        unsafe {
-            std::ptr::copy_nonoverlapping(value, self.ptr_at(self.length), self.size);
-        }
-        self.length += 1;
     }
 
-    unsafe fn swap_remove(&mut self, index: usize) {
-        assert!(index < self.length, "Index out of bounds");
-        let last_index = self.length - 1;
-        if index != last_index {
+    pub unsafe fn swap_remove(&mut self, row: usize) {
+        let size = self.layout.size();
+        let last_index = self.len() - 1;
+
+        if size > 0 {
+            if row != last_index {
+                unsafe {
+                    let row_ptr = self.data.as_mut_ptr().add(row * size);
+                    let last_ptr = self.data.as_ptr().add(last_index * size);
+                    std::ptr::copy_nonoverlapping(last_ptr, row_ptr, size);
+                }
+            }
+            let new_len = self.data.len() - size;
             unsafe {
-                let src = self.ptr_at(last_index);
-                let dest = self.ptr_at(index);
-                std::ptr::copy_nonoverlapping(src, dest, self.size);
+                self.data.set_len(new_len);
             }
+        } else {
+            // For zero-sized types, we just remove the last element
+            self.data.pop();
         }
-        self.length -= 1;
     }
-}
 
-impl Drop for ComponentColumn {
-    fn drop(&mut self) {
-        unsafe {
-            self.dealloc();
-        }
+    pub fn get_ptr(&self, row: usize) -> *const u8 {
+        let size = self.layout.size();
+
+        unsafe { self.data.as_ptr().add(row * size) }
+    }
+
+    pub fn get_mut_ptr(&self, row: usize) -> *mut u8 {
+        self.get_ptr(row) as *mut u8
     }
 }
 
 pub struct Archetype {
-    types: Vec<ComponentInfo>,
-    columns: Vec<ComponentColumn>,
+    id: ArchetypeId,
+    columns: HashMap<ComponentId, Column>,
     entities: Vec<Entity>,
-    component_set: ComponentSet,
 }
 
 impl Archetype {
-    pub fn new(types: Vec<ComponentInfo>, initial_capacity: usize) -> Self {
-        let mut component_set = ComponentSet::new();
-        for type_info in &types {
-            component_set.insert(type_info.id);
-        }
-        let columns = types
-            .iter()
-            .map(|ti| ComponentColumn::with_capacity(ti.size, ti.align, initial_capacity))
-            .collect();
-
+    pub fn new(id: ArchetypeId) -> Self {
         Self {
-            types,
-            columns,
-            entities: Vec::with_capacity(initial_capacity),
-            component_set,
+            id,
+            columns: HashMap::new(),
+            entities: Vec::new(),
         }
+    }
+
+    pub fn id(&self) -> ArchetypeId {
+        self.id
     }
 
     pub fn len(&self) -> usize {
         self.entities.len()
     }
 
-    pub unsafe fn insert(&mut self, entity: Entity, components: &[(*const u8, ComponentId)]) {
-        assert_eq!(
-            components.len(),
-            self.types.len(),
-            "Component count mismatch"
-        );
+    pub fn is_empty(&self) -> bool {
+        self.entities.is_empty()
+    }
 
-        for ((ptr, cid), column) in components.iter().zip(self.columns.iter_mut()) {
-            #[cfg(debug_assertions)]
-            {
-                let type_info = self
-                    .types
-                    .iter()
-                    .find(|ti| ti.id == *cid)
-                    .expect("ComponentId not found in types");
-                assert_eq!(
-                    type_info.size,
-                    size_of_val(ptr),
-                    "Size mismatch for the component"
-                );
-                assert_eq!(
-                    type_info.align,
-                    align_of_val(&ptr),
-                    "Alignment mismatch for the component"
-                );
-            }
+    pub fn columns(&self) -> &HashMap<ComponentId, Column> {
+        &self.columns
+    }
+
+    pub fn entities(&self) -> &[Entity] {
+        &self.entities
+    }
+
+    /// Adds a new entity to the archetype, along with its components.
+    /// Returns the row index where the entity was inserted.
+    ///
+    /// # Safety
+    /// The `component_data` pointers must be valid and must correspond to the `ComponentId`s
+    pub unsafe fn add(
+        &mut self,
+        entity: Entity,
+        component_data: &[(ComponentId, *const u8)],
+        registry: &ComponentRegistry,
+    ) -> usize {
+        for (id, ptr) in component_data {
+            let column = self.columns.entry(*id).or_insert_with(|| {
+                let info = registry
+                    .get_info(*id)
+                    .expect("Component must be registered before being added to an archetype");
+                Column::new(info.layout)
+            });
 
             unsafe {
                 column.push(*ptr);
             }
         }
 
+        let row = self.len();
         self.entities.push(entity);
+        row
     }
 
-    pub unsafe fn remove(&mut self, index: usize) {
-        let last_index = self.entities.len() - 1;
-        if index == last_index {
-            for col in &mut self.columns {
-                col.length -= 1;
-            }
-        } else {
-            self.entities[index] = self.entities[last_index];
-            for col in &mut self.columns {
-                unsafe {
-                    col.swap_remove(index);
-                }
-            }
-        }
-        self.entities.pop();
-    }
-
-    pub unsafe fn get_component_ptr(
-        &self,
-        component_id: ComponentId,
-        index: usize,
-    ) -> Option<*const u8> {
-        let col_index = self.types.iter().position(|ti| ti.id == component_id)?;
-        unsafe { Some(self.columns[col_index].ptr_at(index)) }
-    }
-}
-
-pub(crate) struct ArchetypeManager {
-    pub archetypes: HashMap<ComponentSet, Archetype>,
-    entity_locations: HashMap<Entity, (ComponentSet, usize)>,
-}
-
-impl ArchetypeManager {
-    pub fn new() -> Self {
-        Self {
-            archetypes: HashMap::new(),
-            entity_locations: HashMap::new(),
-        }
-    }
-
-    pub fn get_or_create_archetype(
-        &mut self,
-        component_set: &ComponentSet,
-        component_registry: &ComponentRegistry,
-    ) -> &mut Archetype {
-        if !self.archetypes.contains_key(component_set) {
-            let mut types = Vec::<ComponentInfo>::with_capacity(component_set.bits.len());
-            for i in 0..component_set.bits.len() {
-                // TODO: This smells very fishy
-                if component_set.contains(i) {
-                    let info = component_registry
-                        .get_info(i)
-                        .expect("Component not registered");
-                    types.push(info.clone());
-                }
-            }
-            self.archetypes
-                .insert(component_set.clone(), Archetype::new(types, 64));
-        }
-        self.archetypes.get_mut(component_set).unwrap()
-    }
-
-    pub fn insert(
-        &mut self,
-        entity: Entity,
-        component_set: &ComponentSet,
-        components: &[(*const u8, ComponentId)],
-        component_registry: &ComponentRegistry,
-    ) {
-        let len = {
-            let archetype = self.get_or_create_archetype(component_set, component_registry);
+    /// Removes an entity from the specified row using `swap_remove`.
+    ///
+    /// # Returns
+    /// A tuple containing:
+    /// 1.  The `Entity` that was at the specified `row` (the one being removed).
+    /// 2.  An `Option<Entity>` containing the `Entity` that was moved from the ned of the list
+    ///     to replace the removed one. This is `None` if the removed entity was the last one.
+    ///     The `World` needs this information to update the moved entity's `EntityLocation`.
+    pub fn remove(&mut self, row: usize) -> (Entity, Option<Entity>) {
+        for column in self.columns.values_mut() {
             unsafe {
-                archetype.insert(entity, components);
+                column.swap_remove(row);
             }
-            archetype.len()
+        }
+
+        let removed_entity = self.entities.remove(row);
+
+        let moved_entity = if row < self.entities.len() {
+            Some(self.entities[row])
+        } else {
+            None
         };
 
-        self.entity_locations
-            .insert(entity, (component_set.clone(), len - 1));
+        (removed_entity, moved_entity)
     }
 
-    pub unsafe fn remove_entity(&mut self, entity: Entity) {
-        if let Some((component_set, index)) = self.entity_locations.remove(&entity) {
-            if let Some(archetype) = self.archetypes.get_mut(&component_set) {
-                unsafe {
-                    archetype.remove(index);
-                }
+    /// Adds an entity to this archetype by copying all of its existing component
+    /// data from a source archetype.
+    ///
+    /// Returns the new row index of the added entity.
+    ///
+    /// # Safety
+    /// The caller must uphold several invariants:
+    /// 1. `source_row` must be a valid, in-bounds row index for the `source_archetype`.
+    /// 2. For every `ComponentId` present in `self.columns`, if that component also
+    ///    exists in the `source_archetype`, the `source_column` must be valid.
+    /// 3. The `source_archetype` reference must be valid and distinct from `self`.
+    pub unsafe fn add_moved_entity(
+        &mut self,
+        entity: Entity,
+        source_archetype: &Archetype,
+        source_row: usize,
+    ) -> usize {
+        let new_row = self.len();
 
-                if index < archetype.entities.len() {
-                    let moved_entity = archetype.entities[index];
-                    self.entity_locations
-                        .insert(moved_entity, (component_set.clone(), index));
+        for (component_id, target_column) in &mut self.columns {
+            if let Some(source_column) = source_archetype.columns.get(component_id) {
+                let component_ptr = source_column.get_ptr(source_row);
+                unsafe {
+                    target_column.push(component_ptr);
                 }
             }
         }
+
+        self.entities.push(entity);
+
+        debug_assert!(
+            self.columns
+                .values()
+                .all(|column| column.len() == self.len())
+        );
+
+        new_row
+    }
+
+    pub fn has_component(&self, component_id: ComponentId) -> bool {
+        // TODO: This is a linear search, consider optimizing with a HashSet or similar structure
+        self.columns.contains_key(&component_id)
     }
 }

@@ -1,31 +1,55 @@
-use crate::archetype::ArchetypeManager;
-use crate::component::ComponentRegistry;
+use crate::archetypes::Archetypes;
+use crate::component::{ComponentBundle, ComponentRegistry};
 use crate::entity::{Entity, EntityManager};
+use crate::module::Module;
 use crate::resource::{Resource, Resources};
 use crate::system::systems::Systems;
 use crate::system::IntoSystem;
 
 pub struct World {
     entity_manager: EntityManager,
-    archetype_manager: ArchetypeManager,
-    component_registry: ComponentRegistry,
-    pub resources: Resources,
-    pub systems: Systems,
+    archetypes: Archetypes,
+    pub(crate) component_registry: ComponentRegistry,
+    resources: Resources,
+    systems: Systems,
 }
 
 impl World {
     pub fn new() -> Self {
         Self {
             entity_manager: EntityManager::new(),
-            archetype_manager: ArchetypeManager::new(),
-            component_registry: ComponentRegistry::new(),
+            archetypes: Archetypes::new(),
+            component_registry: ComponentRegistry::default(),
             resources: Resources::new(),
             systems: Systems::new(),
         }
     }
 
-    pub fn spawn(&mut self) -> Entity {
-        self.entity_manager.spawn()
+    pub fn spawn<C: ComponentBundle>(&mut self, bundle: C) -> Entity {
+        let entity = self.entity_manager.spawn();
+
+        let mut component_ids = C::register_components(&mut self.component_registry);
+
+        let archetype_id = self.archetypes.get_or_create_for_bundle::<C>(&mut self.component_registry);
+
+        let archetype = self.archetypes.get_mut(archetype_id)
+            .expect("Archetype was not found for the given bundle");
+
+        let pointers = unsafe {bundle.get_component_painters()};
+        
+        let component_data_to_add: Vec<_> = component_ids.into_iter().zip(pointers).collect();
+        
+        let row = unsafe {
+            archetype.add(entity, &component_data_to_add, &self.component_registry)
+        };
+        
+        // TODO: Update entity location
+        
+        entity
+    }
+
+    pub fn archetypes(&self) -> &Archetypes {
+        &self.archetypes
     }
 
     pub fn get_resource<T: Resource>(&self) -> Option<&T> {
@@ -34,6 +58,10 @@ impl World {
 
     pub fn get_resource_mut<T: Resource>(&mut self) -> Option<&mut T> {
         self.resources.get_mut::<T>()
+    }
+
+    pub fn insert_resource<T: Resource>(&mut self, resource: T) {
+        self.resources.insert(resource);
     }
 
     pub fn add_system<M>(&mut self, system: impl IntoSystem<M>) {
@@ -47,5 +75,9 @@ impl World {
         systems.run(self);
 
         self.systems = systems;
+    }
+
+    pub fn register_module<T: Module>(&mut self) {
+        T::register(self);
     }
 }

@@ -9,7 +9,7 @@ pub trait SystemParam: Sized {
 
     fn get_param<'world, 'state>(
         state: &'state Self::State,
-        world: &'world World,
+        world: &'world mut World,
     ) -> Self::Item<'world, 'state>;
 }
 
@@ -20,19 +20,16 @@ impl SystemParam for () {
 
     type Item<'world, 'state> = ();
 
-    fn init_state(_: &mut World) -> Self::State {
-        // No state needed for unit type
-        ()
-    }
+    fn init_state(_: &mut World) -> Self::State {}
 
     fn get_param<'world, 'state>(
         _: &'state Self::State,
-        _: &'world World,
+        _: &'world mut World,
     ) -> Self::Item<'world, 'state> {
-        ()
     }
 }
 
+// TODO: Create macro to generate tuples of SystemParams
 impl<P: SystemParam> SystemParam for (P,) {
     type State = (P::State,);
 
@@ -44,7 +41,7 @@ impl<P: SystemParam> SystemParam for (P,) {
 
     fn get_param<'world, 'state>(
         state: &'state Self::State,
-        world: &'world World,
+        world: &'world mut World,
     ) -> Self::Item<'world, 'state> {
         let (p,) = state;
         (P::get_param(p, world),)

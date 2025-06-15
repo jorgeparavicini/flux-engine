@@ -1,7 +1,10 @@
 mod archetype;
-mod component;
+mod archetype_graph;
+mod archetypes;
+pub mod component;
 mod entity;
-mod query;
+pub mod module;
+pub mod query;
 pub mod resource;
 pub mod system;
 pub mod world;

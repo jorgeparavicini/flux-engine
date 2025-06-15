@@ -1,5 +1,5 @@
 [package]
-name = "flux-engine-macros"
+name = "flux-memory-macros"
 version = "0.1.0"
 edition = "2021"
 
@@ -10,4 +10,4 @@ proc-macro = true
 syn = { workspace = true, features = ["full", "extra-traits", "visit-mut"] }
 quote = { workspace = true }
 proc-macro2 = { workspace = true }
-flux-engine-memory = { path = "../flux_memory" }
+flux-engine-memory = { path = ".." }

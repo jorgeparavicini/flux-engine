@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 #[global_allocator]
 pub static ALLOCATOR: TrackedAllocator = TrackedAllocator::new();
 
+#[derive(Default)]
 pub struct TrackedAllocator {
     allocations: [AtomicUsize; mem::variant_count::<Region>()],
     allocated_bytes: [AtomicUsize; mem::variant_count::<Region>()],
@@ -20,8 +21,10 @@ impl TrackedAllocator {
                 AtomicUsize::new(0),
                 AtomicUsize::new(0),
                 AtomicUsize::new(0),
+                AtomicUsize::new(0),
             ],
             allocated_bytes: [
+                AtomicUsize::new(0),
                 AtomicUsize::new(0),
                 AtomicUsize::new(0),
                 AtomicUsize::new(0),
@@ -38,6 +41,7 @@ impl TrackedAllocator {
             Region::Audio => 2,
             Region::Scene => 3,
             Region::General => 4,
+            Region::ECS => 5,
         }
     }
 
