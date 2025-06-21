@@ -59,7 +59,7 @@ impl<'world, T: Resource> Res<'world, T> {
     }
 }
 
-impl<'world, T: Resource> Deref for Res<'world, T> {
+impl<T: Resource> Deref for Res<'_, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -67,7 +67,7 @@ impl<'world, T: Resource> Deref for Res<'world, T> {
     }
 }
 
-impl<'a, T: Resource> SystemParam for Res<'a, T> {
+impl<T: Resource> SystemParam for Res<'_, T> {
     type State = ();
 
     type Item<'world, 'state> = Res<'world, T>;
@@ -77,10 +77,27 @@ impl<'a, T: Resource> SystemParam for Res<'a, T> {
     }
 
     fn get_param<'world, 'state>(
-        _: &'state Self::State,
+        _state: &'state Self::State,
         world: &'world mut World,
     ) -> Self::Item<'world, 'state> {
         let resource = world.get_resource::<T>().expect("resource not found");
         Res::new(resource)
+    }
+}
+
+impl<T: Resource> SystemParam for Option<Res<'_, T>> {
+    type State = ();
+
+    type Item<'world, 'state> = Option<Res<'world, T>>;
+
+    fn init_state(_: &mut World) -> Self::State {
+        // No state needed for resources
+    }
+
+    fn get_param<'world, 'state>(
+        _state: &'state Self::State,
+        world: &'world mut World,
+    ) -> Self::Item<'world, 'state> {
+        world.get_resource::<T>().map(Res::new)
     }
 }

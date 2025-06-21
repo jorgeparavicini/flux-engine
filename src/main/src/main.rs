@@ -25,7 +25,7 @@ struct TestComponent {}
 impl Component for TestComponent {}
 
 fn query_system(q: Query<&TestComponent>) {
-    for item in q.iter() {
+    for item in q {
         println!("Querying TestComponent: {item:?}");
     }
 }

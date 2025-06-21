@@ -9,7 +9,7 @@ pub trait Component: 'static {}
 pub struct ComponentId(pub usize);
 
 #[derive(Debug, Clone)]
-pub(crate) struct ComponentInfo {
+pub struct ComponentInfo {
     pub id: ComponentId,
     pub type_id: TypeId,
     pub layout: Layout,
@@ -30,10 +30,10 @@ macro_rules! impl_component_bundle_for_tuple {
             fn register_components(registry: &mut ComponentRegistry) -> Vec<ComponentId> {
                 vec![$(registry.register::<$T>()),+]
             }
-            
+
             unsafe fn get_component_painters(&self) -> Vec<*const u8> {
                 let ($($T,)+) = self;
-                
+
                 vec![$($T as *const $T as *const u8),+]
             }
         }
@@ -66,11 +66,13 @@ impl ComponentRegistry {
         })
     }
 
+    #[must_use]
     pub fn get_id<T: Component>(&self) -> Option<ComponentId> {
         let type_id = TypeId::of::<T>();
         self.type_to_id.get(&type_id).copied()
     }
 
+    #[must_use]
     pub fn get_info(&self, id: ComponentId) -> Option<&ComponentInfo> {
         self.infos.get(id.0)
     }

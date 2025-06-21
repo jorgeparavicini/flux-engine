@@ -3,15 +3,16 @@ use crate::component::{ComponentBundle, ComponentRegistry};
 use crate::entity::{Entity, EntityManager};
 use crate::module::Module;
 use crate::resource::{Resource, Resources};
-use crate::system::systems::Systems;
+use crate::schedule::{Schedule, Schedules};
 use crate::system::IntoSystem;
+use crate::system::systems::Systems;
 
 pub struct World {
     entity_manager: EntityManager,
     archetypes: Archetypes,
     pub(crate) component_registry: ComponentRegistry,
     resources: Resources,
-    systems: Systems,
+    schedules: Schedules,
 }
 
 impl World {
@@ -21,7 +22,7 @@ impl World {
             archetypes: Archetypes::new(),
             component_registry: ComponentRegistry::default(),
             resources: Resources::new(),
-            systems: Systems::new(),
+            schedules: Schedules::new(),
         }
     }
 
@@ -30,21 +31,24 @@ impl World {
 
         let mut component_ids = C::register_components(&mut self.component_registry);
 
-        let archetype_id = self.archetypes.get_or_create_for_bundle::<C>(&mut self.component_registry);
+        let archetype_id = self
+            .archetypes
+            .get_or_create_for_bundle::<C>(&mut self.component_registry);
 
-        let archetype = self.archetypes.get_mut(archetype_id)
+        let archetype = self
+            .archetypes
+            .get_mut(archetype_id)
             .expect("Archetype was not found for the given bundle");
 
-        let pointers = unsafe {bundle.get_component_painters()};
-        
+        let pointers = unsafe { bundle.get_component_painters() };
+
         let component_data_to_add: Vec<_> = component_ids.into_iter().zip(pointers).collect();
-        
-        let row = unsafe {
-            archetype.add(entity, &component_data_to_add, &self.component_registry)
-        };
-        
+
+        let row =
+            unsafe { archetype.add(entity, &component_data_to_add, &self.component_registry) };
+
         // TODO: Update entity location
-        
+
         entity
     }
 
@@ -64,17 +68,12 @@ impl World {
         self.resources.insert(resource);
     }
 
-    pub fn add_system<M>(&mut self, system: impl IntoSystem<M>) {
-        self.systems.add_system(system);
+    pub fn add_system<M>(&mut self, schedule: Schedule, system: impl IntoSystem<M>) {
+        self.schedules.add(schedule, system);
     }
-
-    pub fn run_systems(&mut self) {
-        // TODO: This is a temporary solution to avoid borrowing issues.
-        let mut systems = std::mem::take(&mut self.systems);
-
-        systems.run(self);
-
-        self.systems = systems;
+    
+    pub fn get_schedule(&self, schedule: &Schedule) -> Option<&Systems> {
+        self.schedules.get_schedule(schedule)
     }
 
     pub fn register_module<T: Module>(&mut self) {

@@ -172,6 +172,28 @@ impl<Q: QueryData> QueryState<Q> {
     }
 }
 
+pub struct Query<'world, 'state, Q: QueryData> {
+    world: &'world World,
+    state: &'state QueryState<Q>,
+}
+
+impl<'world, 'state, Q: QueryData> IntoIterator for Query<'world, 'state, Q> {
+    type Item = Q::Item<'world>;
+    type IntoIter = QueryIter<'world, 'state, Q>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        QueryIter {
+            world: self.world,
+            state: self.state,
+            archetype_index: 0,
+            current_fetch: None,
+            current_archetype_len: 0,
+            row_index: 0,
+        }
+    }
+}
+
+
 pub struct QueryIter<'w, 's, Q: QueryData> {
     world: &'w World,
     state: &'s QueryState<Q>,
@@ -212,24 +234,6 @@ impl<'w, 's, Q: QueryData> Iterator for QueryIter<'w, 's, Q> {
                 self.row_index = 0;
                 self.current_archetype_len = archetype.len();
             }
-        }
-    }
-}
-
-pub struct Query<'world, 'state, Q: QueryData> {
-    world: &'world World,
-    state: &'state QueryState<Q>,
-}
-
-impl<'world, 'state, Q: QueryData> Query<'world, 'state, Q> {
-    pub fn iter(&self) -> QueryIter<'world, 'state, Q> {
-        QueryIter {
-            world: self.world,
-            state: self.state,
-            archetype_index: 0,
-            current_fetch: None,
-            current_archetype_len: 0,
-            row_index: 0,
         }
     }
 }

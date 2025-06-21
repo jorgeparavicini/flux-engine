@@ -6,5 +6,6 @@ mod entity;
 pub mod module;
 pub mod query;
 pub mod resource;
+mod schedule;
 pub mod system;
 pub mod world;
