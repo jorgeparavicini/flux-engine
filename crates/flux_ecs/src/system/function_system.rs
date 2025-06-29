@@ -56,6 +56,8 @@ where
         let params = F::Param::get_param(&mut state.param, world);
 
         self.func.run(params);
+        
+        F::Param::apply_buffers(&mut state.param, world);
     }
 
     fn initialize(&mut self, world: &mut World) {
@@ -101,7 +103,7 @@ where
         {
             f(f0);
         }
-        let (f0,) = param;
+        let (f0, ) = param;
         call_inner(self, f0);
     }
 }

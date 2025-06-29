@@ -1,6 +1,7 @@
 use flux_engine_ecs::component::Component;
 use flux_engine_ecs::query::Query;
 use flux_engine_ecs::resource::{Res, Resource};
+use flux_engine_ecs::schedule::ScheduleLabel;
 use flux_engine_ecs::world::World;
 
 fn main() {
@@ -36,13 +37,13 @@ fn test() {
     world.spawn((TestComponent {},));
 
     //Add a system that prints the entity index
-    world.add_system(test_system);
-    world.add_system(empty_system);
-    world.add_system(query_system);
+    world.add_system(ScheduleLabel::Main, test_system);
+    world.add_system(ScheduleLabel::Main, empty_system);
+    world.add_system(ScheduleLabel::Main, query_system);
 
     // Run all systems
     for _ in 0..10 {
         world.get_resource_mut::<Time>().unwrap().seconds += 1.0;
-        world.run_systems();
+        //world.run_systems();
     }
 }

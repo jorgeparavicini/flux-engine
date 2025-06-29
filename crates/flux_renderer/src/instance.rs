@@ -1,5 +1,6 @@
 use anyhow::{bail, Result};
 use ash::{vk, Instance};
+use flux_engine_ecs::commands::Commands;
 use flux_engine_ecs::resource::{Res, Resource};
 use log::info;
 use raw_window_handle::RawDisplayHandle;
@@ -51,7 +52,8 @@ impl Drop for VulkanInstance {
 fn create_instance(
     surface_provider_resource: Res<SurfaceProviderResource>,
     renderer_settings: Option<Res<RendererSettings>>,
-) -> Result<VulkanInstance> {
+    commands: &mut Commands,
+) -> Result<()> {
     let entry = ash::Entry::linked();
 
     // TODO: How do we make this configurable? As well as the application version?
@@ -104,7 +106,7 @@ fn create_instance(
     let mut extensions = ash_window::enumerate_required_extensions(
         surface_provider_resource.provider.get_window_handle(),
     )?
-    .to_vec();
+        .to_vec();
 
     if VALIDATION_ENABLED {
         extensions.push(VALIDATION_LAYER.as_ptr());
@@ -136,5 +138,7 @@ fn create_instance(
             .expect("Failed to create Vulkan instance");
     }
 
-    Ok(VulkanInstance { entry, instance })
+    commands.insert_resource(VulkanInstance { entry, instance });
+
+    Ok(())
 }

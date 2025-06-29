@@ -1,11 +1,11 @@
 use crate::archetypes::Archetypes;
+use crate::commands::{Command, CommandQueue};
 use crate::component::{ComponentBundle, ComponentRegistry};
 use crate::entity::{Entity, EntityManager};
 use crate::module::Module;
 use crate::resource::{Resource, Resources};
-use crate::schedule::{Schedule, Schedules};
+use crate::schedule::{ScheduleLabel, Schedules};
 use crate::system::IntoSystem;
-use crate::system::systems::Systems;
 
 pub struct World {
     entity_manager: EntityManager,
@@ -13,6 +13,7 @@ pub struct World {
     pub(crate) component_registry: ComponentRegistry,
     resources: Resources,
     schedules: Schedules,
+    command_queue: CommandQueue,
 }
 
 impl World {
@@ -23,6 +24,7 @@ impl World {
             component_registry: ComponentRegistry::default(),
             resources: Resources::new(),
             schedules: Schedules::new(),
+            command_queue: CommandQueue::new(),
         }
     }
 
@@ -68,15 +70,25 @@ impl World {
         self.resources.insert(resource);
     }
 
-    pub fn add_system<M>(&mut self, schedule: Schedule, system: impl IntoSystem<M>) {
+    pub fn add_system<M>(&mut self, schedule: ScheduleLabel, system: impl IntoSystem<M>) {
         self.schedules.add(schedule, system);
-    }
-    
-    pub fn get_schedule(&self, schedule: &Schedule) -> Option<&Systems> {
-        self.schedules.get_schedule(schedule)
     }
 
     pub fn register_module<T: Module>(&mut self) {
         T::register(self);
+    }
+
+    pub fn add_command(&mut self, command: Box<dyn Command>) {
+        self.command_queue.push(command);
+    }
+
+    pub fn flush_commands(&mut self) {
+        while !self.command_queue.is_empty() {
+            let commands = std::mem::take(&mut self.command_queue.commands);
+            
+            for command in commands {
+                command.execute(self);
+            }
+        }
     }
 }

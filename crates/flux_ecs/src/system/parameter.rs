@@ -3,7 +3,7 @@ use crate::world::World;
 pub trait SystemParam: Sized {
     type State: 'static;
 
-    type Item<'world, 'state>: SystemParam<State = Self::State>;
+    type Item<'world, 'state>: SystemParam<State=Self::State>;
 
     fn init_state(world: &mut World) -> Self::State;
 
@@ -11,6 +11,8 @@ pub trait SystemParam: Sized {
         state: &'state Self::State,
         world: &'world mut World,
     ) -> Self::Item<'world, 'state>;
+
+    fn apply_buffers(state: &Self::State, world: &mut World) {}
 }
 
 pub type SystemParamItem<'world, 'state, P> = <P as SystemParam>::Item<'world, 'state>;
@@ -25,8 +27,7 @@ impl SystemParam for () {
     fn get_param<'world, 'state>(
         _: &'state Self::State,
         _: &'world mut World,
-    ) -> Self::Item<'world, 'state> {
-    }
+    ) -> Self::Item<'world, 'state> {}
 }
 
 // TODO: Create macro to generate tuples of SystemParams
@@ -43,7 +44,7 @@ impl<P: SystemParam> SystemParam for (P,) {
         state: &'state Self::State,
         world: &'world mut World,
     ) -> Self::Item<'world, 'state> {
-        let (p,) = state;
+        let (p, ) = state;
         (P::get_param(p, world),)
     }
 }
