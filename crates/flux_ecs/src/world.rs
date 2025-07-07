@@ -3,6 +3,7 @@ use crate::commands::{Command, CommandQueue};
 use crate::component::{ComponentBundle, ComponentRegistry};
 use crate::entity::{Entity, EntityManager};
 use crate::module::Module;
+use crate::plugin::Plugin;
 use crate::resource::{Resource, Resources};
 use crate::schedule::{ScheduleLabel, Schedules};
 use crate::system::IntoSystem;
@@ -90,5 +91,9 @@ impl World {
                 command.execute(self);
             }
         }
+    }
+
+    pub fn add_plugin(&mut self, plugin: impl Plugin) {
+        plugin.init(self);
     }
 }

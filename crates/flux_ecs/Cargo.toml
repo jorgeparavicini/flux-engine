@@ -1,5 +1,5 @@
 [package]
-name = "flux-engine-ecs"
+name = "flux_ecs"
 version = "0.1.0"
 edition = "2024"
 

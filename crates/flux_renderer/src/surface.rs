@@ -1,5 +1,5 @@
 use crate::instance::{SurfaceProviderResource, VulkanInstance};
-use flux_engine_ecs::resource::{Res, Resource};
+use flux_ecs::resource::{Res, Resource};
 
 struct VulkanSurface {
     pub surface: ash::vk::SurfaceKHR,
@@ -15,8 +15,8 @@ impl Drop for VulkanSurface {
     }
 }
 
-fn create_surface(
+pub fn create_surface(
     surface_provider_resource: Res<SurfaceProviderResource>,
     instance: Res<VulkanInstance>,
-) -> Result<VulkanSurface> {
+) {
 }

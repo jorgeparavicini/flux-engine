@@ -4,9 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-flux-engine-ecs = { path = "../flux_ecs" }
+flux_ecs = { path = "../flux_ecs" }
 
-ash = { version = "0.38.0+1.3.281", features = ["linked"] }
+ash = { version = "0.38.0", features = ["linked"] }
 ash-window = "0.13.0"
 anyhow = "1.0.98"
 log = "0.4.27"

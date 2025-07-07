@@ -1,8 +1,8 @@
-use anyhow::{bail, Result};
-use ash::{vk, Instance};
-use flux_engine_ecs::commands::Commands;
-use flux_engine_ecs::resource::{Res, Resource};
-use log::info;
+use anyhow::{Result, bail};
+use ash::{Instance, vk};
+use flux_ecs::commands::Commands;
+use flux_ecs::resource::{Res, Resource};
+use log::{error, info};
 use raw_window_handle::RawDisplayHandle;
 use std::collections::HashSet;
 use std::ffi::CStr;
@@ -49,18 +49,20 @@ impl Drop for VulkanInstance {
     }
 }
 
-fn create_instance(
+pub fn create_instance(
     surface_provider_resource: Res<SurfaceProviderResource>,
     renderer_settings: Option<Res<RendererSettings>>,
-    commands: &mut Commands,
-) -> Result<()> {
+    mut commands: Commands,
+) {
     let entry = ash::Entry::linked();
 
     // TODO: How do we make this configurable? As well as the application version?
     let app_name = renderer_settings.as_ref().map_or_else(
         || c"Flux Renderer",
-        |settings| CStr::from_bytes_with_nul(settings.app_name.as_bytes())
-            .expect("Invalid application name"),
+        |settings| {
+            CStr::from_bytes_with_nul(settings.app_name.as_bytes())
+                .expect("Invalid application name")
+        },
     );
     let engine_name = c"Flux Engine";
 
@@ -86,18 +88,22 @@ fn create_instance(
     let available_layers;
     unsafe {
         available_layers = entry
-            .enumerate_instance_layer_properties()?
+            .enumerate_instance_layer_properties()
+            .unwrap()
             .iter()
             .map(|l| l.layer_name.as_ptr())
             .collect::<HashSet<_>>();
     }
 
     if VALIDATION_ENABLED && !available_layers.contains(&VALIDATION_LAYER.as_ptr()) {
-        bail!("Validation layers are not supported");
+        error!("Validation layers are not available");
     }
 
     let enabled_layers = if VALIDATION_ENABLED {
-        info!("Enabling validation layers {}", VALIDATION_LAYER.to_str()?);
+        info!(
+            "Enabling validation layers {}",
+            VALIDATION_LAYER.to_str().unwrap()
+        );
         vec![VALIDATION_LAYER.as_ptr()]
     } else {
         Vec::new()
@@ -105,8 +111,9 @@ fn create_instance(
 
     let mut extensions = ash_window::enumerate_required_extensions(
         surface_provider_resource.provider.get_window_handle(),
-    )?
-        .to_vec();
+    )
+    .unwrap()
+    .to_vec();
 
     if VALIDATION_ENABLED {
         extensions.push(VALIDATION_LAYER.as_ptr());
@@ -135,10 +142,8 @@ fn create_instance(
     unsafe {
         instance = entry
             .create_instance(&create_info, None)
-            .expect("Failed to create Vulkan instance");
+            .expect("Failed to create a Vulkan instance");
     }
 
     commands.insert_resource(VulkanInstance { entry, instance });
-
-    Ok(())
 }

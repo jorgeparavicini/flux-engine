@@ -1,7 +1,8 @@
 [package]
 name = "main"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
-flux-engine-ecs = { path = "../../crates/flux_ecs" }
+flux_ecs = { path = "../../crates/flux_ecs" }
+flux_renderer = { path = "../../crates/flux_renderer" }

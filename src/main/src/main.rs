@@ -1,11 +1,14 @@
-use flux_engine_ecs::component::Component;
-use flux_engine_ecs::query::Query;
-use flux_engine_ecs::resource::{Res, Resource};
-use flux_engine_ecs::schedule::ScheduleLabel;
-use flux_engine_ecs::world::World;
+use flux_ecs::commands::Commands;
+use flux_ecs::component::Component;
+use flux_ecs::query::Query;
+use flux_ecs::resource::{Res, Resource};
+use flux_ecs::schedule::ScheduleLabel;
+use flux_ecs::world::World;
+use flux_renderer::RendererPlugin;
 
 fn main() {
-    test();
+    let mut world = World::new();
+    world.add_plugin(RendererPlugin);
 }
 
 struct Time {
@@ -31,6 +34,10 @@ fn query_system(q: Query<&TestComponent>) {
     }
 }
 
+fn command_system(mut commands: Commands) {
+    commands.insert_resource(Time { seconds: 0.0 });
+}
+
 fn test() {
     let mut world = World::new();
     world.insert_resource(Time { seconds: 42.0 });
@@ -40,6 +47,7 @@ fn test() {
     world.add_system(ScheduleLabel::Main, test_system);
     world.add_system(ScheduleLabel::Main, empty_system);
     world.add_system(ScheduleLabel::Main, query_system);
+    world.add_system(ScheduleLabel::Main, command_system);
 
     // Run all systems
     for _ in 0..10 {
