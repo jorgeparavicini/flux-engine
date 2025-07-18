@@ -1,8 +1,8 @@
+use crate::instance::create_instance;
+use crate::surface::create_surface;
 use flux_ecs::plugin::Plugin;
 use flux_ecs::schedule::ScheduleLabel;
 use flux_ecs::world::World;
-use crate::instance::create_instance;
-use crate::surface::create_surface;
 
 mod instance;
 mod surface;

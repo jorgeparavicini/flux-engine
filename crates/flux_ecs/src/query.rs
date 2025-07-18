@@ -193,7 +193,6 @@ impl<'world, 'state, Q: QueryData> IntoIterator for Query<'world, 'state, Q> {
     }
 }
 
-
 pub struct QueryIter<'w, 's, Q: QueryData> {
     world: &'w World,
     state: &'s QueryState<Q>,
@@ -208,12 +207,12 @@ impl<'w, 's, Q: QueryData> Iterator for QueryIter<'w, 's, Q> {
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
-            if let Some(ref mut fetch) = self.current_fetch {
-                if self.row_index < self.current_archetype_len {
-                    let item = unsafe { Q::fetch(fetch, self.row_index) };
-                    self.row_index += 1;
-                    return Some(item);
-                }
+            if let Some(ref mut fetch) = self.current_fetch
+                && self.row_index < self.current_archetype_len
+            {
+                let item = unsafe { Q::fetch(fetch, self.row_index) };
+                self.row_index += 1;
+                return Some(item);
             }
 
             if self.archetype_index == self.state.matching_archetypes.len() {

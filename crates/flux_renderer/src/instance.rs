@@ -1,11 +1,11 @@
-use anyhow::{Result, bail};
-use ash::{Instance, vk};
+use ash::{vk, Instance};
 use flux_ecs::commands::Commands;
 use flux_ecs::resource::{Res, Resource};
-use log::{error, info};
+use log::{debug, error, info, warn};
 use raw_window_handle::RawDisplayHandle;
 use std::collections::HashSet;
-use std::ffi::CStr;
+use std::ffi::{c_void, CStr};
+use std::io::Error;
 
 const VALIDATION_ENABLED: bool = cfg!(debug_assertions);
 const VALIDATION_LAYER: &CStr = c"VK_LAYER_KHRONOS_validation";
@@ -53,7 +53,7 @@ pub fn create_instance(
     surface_provider_resource: Res<SurfaceProviderResource>,
     renderer_settings: Option<Res<RendererSettings>>,
     mut commands: Commands,
-) {
+) -> Result<(), vk::Result> {
     let entry = ash::Entry::linked();
 
     // TODO: How do we make this configurable? As well as the application version?
@@ -85,15 +85,13 @@ pub fn create_instance(
         .engine_version(vk::make_api_version(0, 1, 0, 0))
         .api_version(vk::make_api_version(0, 1, 4, 0));
 
-    let available_layers;
-    unsafe {
-        available_layers = entry
-            .enumerate_instance_layer_properties()
-            .unwrap()
+    let available_layers = unsafe {
+        entry
+            .enumerate_instance_layer_properties()?
             .iter()
             .map(|l| l.layer_name.as_ptr())
-            .collect::<HashSet<_>>();
-    }
+            .collect::<HashSet<_>>()
+    };
 
     if VALIDATION_ENABLED && !available_layers.contains(&VALIDATION_LAYER.as_ptr()) {
         error!("Validation layers are not available");
@@ -111,8 +109,7 @@ pub fn create_instance(
 
     let mut extensions = ash_window::enumerate_required_extensions(
         surface_provider_resource.provider.get_window_handle(),
-    )
-    .unwrap()
+    )?
     .to_vec();
 
     if VALIDATION_ENABLED {
@@ -132,18 +129,62 @@ pub fn create_instance(
         vk::InstanceCreateFlags::default()
     };
 
-    let create_info = vk::InstanceCreateInfo::default()
+    let mut create_info = vk::InstanceCreateInfo::default()
         .application_info(&app_info)
         .enabled_layer_names(&enabled_layers)
         .enabled_extension_names(&extensions)
         .flags(create_flags);
 
-    let instance: Instance;
-    unsafe {
-        instance = entry
-            .create_instance(&create_info, None)
-            .expect("Failed to create a Vulkan instance");
+    let mut debug_messenger = get_debug_messenger_create_info();
+    if VALIDATION_ENABLED {
+        create_info = create_info.push_next(&mut debug_messenger);
     }
 
+    let instance: Instance = unsafe { entry.create_instance(&create_info, None)? };
+
+    // TODO: Create debug messenger
+
     commands.insert_resource(VulkanInstance { entry, instance });
+
+    Ok(())
+}
+
+fn get_debug_messenger_create_info<'a>() -> vk::DebugUtilsMessengerCreateInfoEXT<'a> {
+    vk::DebugUtilsMessengerCreateInfoEXT::default()
+        .message_severity(
+            vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE
+                | vk::DebugUtilsMessageSeverityFlagsEXT::INFO
+                | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING
+                | vk::DebugUtilsMessageSeverityFlagsEXT::ERROR,
+        )
+        .message_type(
+            vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
+                | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
+                | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE,
+        )
+        .pfn_user_callback(Some(debug_callback))
+}
+
+extern "system" fn debug_callback(
+    severity: vk::DebugUtilsMessageSeverityFlagsEXT,
+    type_: vk::DebugUtilsMessageTypeFlagsEXT,
+    data: *const vk::DebugUtilsMessengerCallbackDataEXT,
+    _: *mut c_void,
+) -> vk::Bool32 {
+    let data = unsafe { *data };
+    let message_id_name = unsafe { CStr::from_ptr(data.p_message_id_name).to_string_lossy() };
+    let message_id_number = data.message_id_number;
+    let message = unsafe { CStr::from_ptr(data.p_message).to_string_lossy() };
+
+    if severity == vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE {
+        debug!("{type_:?} [{message_id_name} ({message_id_number})]: {message}");
+    } else if severity == vk::DebugUtilsMessageSeverityFlagsEXT::INFO {
+        info!("{type_:?} [{message_id_name} ({message_id_number})]: {message}");
+    } else if severity == vk::DebugUtilsMessageSeverityFlagsEXT::WARNING {
+        warn!("{type_:?} [{message_id_name} ({message_id_number})]: {message}");
+    } else if severity == vk::DebugUtilsMessageSeverityFlagsEXT::ERROR {
+        error!("{type_:?} [{message_id_name} ({message_id_number})]: {message}");
+    }
+
+    vk::FALSE
 }
