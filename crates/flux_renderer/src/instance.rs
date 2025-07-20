@@ -5,7 +5,6 @@ use log::{debug, error, info, warn};
 use raw_window_handle::RawDisplayHandle;
 use std::collections::HashSet;
 use std::ffi::{c_void, CStr};
-use std::io::Error;
 
 const VALIDATION_ENABLED: bool = cfg!(debug_assertions);
 const VALIDATION_LAYER: &CStr = c"VK_LAYER_KHRONOS_validation";

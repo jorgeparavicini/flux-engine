@@ -1,4 +1,5 @@
 use crate::world::World;
+use variadics_please::all_tuples;
 
 pub trait SystemParam: Sized {
     type State: 'static;
@@ -12,82 +13,35 @@ pub trait SystemParam: Sized {
         world: &'world mut World,
     ) -> Self::Item<'world, 'state>;
 
-    fn apply_buffers(state: &Self::State, world: &mut World) {}
+    fn apply_buffers(
+        #[allow(unused_variables)] state: &Self::State,
+        #[allow(unused_variables)] world: &mut World,
+    ) {}
 }
 
 pub type SystemParamItem<'world, 'state, P> = <P as SystemParam>::Item<'world, 'state>;
 
-impl SystemParam for () {
-    type State = ();
+macro_rules! impl_system_param {
+    ($(($T:ident, $t:ident)),*) => {
+        impl<$($T: SystemParam),*> SystemParam for ($($T,)*) {
+            type State = ($($T::State,)*);
+            type Item<'world, 'state> = ($($T::Item<'world, 'state>,)*);
 
-    type Item<'world, 'state> = ();
+            fn init_state(#[allow(unused_variables)]world: &mut World) -> Self::State {
+                ($($T::init_state(world),)*)
+            }
 
-    fn init_state(_: &mut World) -> Self::State {}
-
-    fn get_param<'world, 'state>(
-        _: &'state Self::State,
-        _: &'world mut World,
-    ) -> Self::Item<'world, 'state> {}
+            fn get_param<'world, 'state>(
+                state: &'state Self::State,
+                #[allow(unused_variables)]
+                world: &'world mut World,
+            ) -> Self::Item<'world, 'state> {
+                let ($($t,)*) = state;
+                $(let $t = $T::get_param($t, unsafe { &mut *(world as *mut World) });)*
+                ($($t,)*)
+            }
+        }
+    };
 }
 
-// TODO: Create macro to generate tuples of SystemParams
-impl<P: SystemParam> SystemParam for (P,) {
-    type State = (P::State,);
-
-    type Item<'world, 'state> = (P::Item<'world, 'state>,);
-
-    fn init_state(world: &mut World) -> Self::State {
-        (P::init_state(world),)
-    }
-
-    fn get_param<'world, 'state>(
-        state: &'state Self::State,
-        world: &'world mut World,
-    ) -> Self::Item<'world, 'state> {
-        let (p, ) = state;
-        (P::get_param(p, world),)
-    }
-}
-
-impl<P: SystemParam, Q: SystemParam> SystemParam for (P, Q) {
-    type State = (P::State, Q::State);
-
-    type Item<'world, 'state> = (P::Item<'world, 'state>, Q::Item<'world, 'state>);
-
-    fn init_state(world: &mut World) -> Self::State {
-        (P::init_state(world), Q::init_state(world))
-    }
-
-    fn get_param<'world, 'state>(
-        state: &'state Self::State,
-        world: &'world mut World,
-    ) -> Self::Item<'world, 'state> {
-        let (p, q) = state;
-        // SAFETY: The implementor of `SystemParam` must ensure that the state for `P` and `Q` 
-        // do not overlap in memory.
-        let p = P::get_param(p, unsafe {&mut *(world as *mut World)});
-        let q = Q::get_param(q, world);
-        (p, q)
-    }
-}
-
-impl<P: SystemParam, Q: SystemParam, R: SystemParam> SystemParam for (P, Q, R) {
-    type State = (P::State, Q::State, R::State);
-
-    type Item<'world, 'state> = (P::Item<'world, 'state>, Q::Item<'world, 'state>, R::Item<'world, 'state>);
-
-    fn init_state(world: &mut World) -> Self::State {
-        (P::init_state(world), Q::init_state(world), R::init_state(world))
-    }
-
-    fn get_param<'world, 'state>(
-        state: &'state Self::State,
-        world: &'world mut World,
-    ) -> Self::Item<'world, 'state> {
-        let (p, q, r) = state;
-        let p = P::get_param(p, unsafe {&mut *(world as *mut World)});
-        let q = Q::get_param(q, unsafe {&mut *(world as *mut World)});
-        let r = R::get_param(r, unsafe {&mut *(world as *mut World)});
-        (p, q, r)
-    }
-}
+all_tuples!(impl_system_param, 0, 15, T, t);

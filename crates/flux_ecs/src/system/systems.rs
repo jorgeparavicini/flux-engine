@@ -2,7 +2,7 @@ use crate::system::{IntoSystem, System};
 use crate::world::World;
 
 #[derive(Default, PartialEq, Clone, Debug)]
-enum CommandFlushTechnique {
+pub enum CommandFlushTechnique {
     AfterEach,
     #[default]
     AfterAll,
