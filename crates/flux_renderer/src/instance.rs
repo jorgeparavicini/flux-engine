@@ -112,7 +112,7 @@ pub fn create_instance(
     .to_vec();
 
     if VALIDATION_ENABLED {
-        extensions.push(VALIDATION_LAYER.as_ptr());
+        extensions.push(ash::ext::debug_utils::NAME.as_ptr());
     }
 
     #[cfg(any(target_os = "macos", target_os = "ios"))]

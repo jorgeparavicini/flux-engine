@@ -17,6 +17,12 @@ pub struct World {
     command_queue: CommandQueue,
 }
 
+impl Default for World {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl World {
     pub fn new() -> Self {
         Self {
@@ -32,7 +38,7 @@ impl World {
     pub fn spawn<C: ComponentBundle>(&mut self, bundle: C) -> Entity {
         let entity = self.entity_manager.spawn();
 
-        let mut component_ids = C::register_components(&mut self.component_registry);
+        let component_ids = C::register_components(&mut self.component_registry);
 
         let archetype_id = self
             .archetypes
@@ -67,12 +73,19 @@ impl World {
         self.resources.get_mut::<T>()
     }
 
-    pub fn insert_resource<T: Resource>(&mut self, resource: T) {
+    pub fn add_resource<T: Resource>(&mut self, resource: T) {
         self.resources.insert(resource);
     }
 
-    pub fn add_system<M>(&mut self, schedule: ScheduleLabel, system: impl IntoSystem<M>) {
-        self.schedules.add(schedule, system);
+    pub fn add_system<M>(&mut self, label: ScheduleLabel, system: impl IntoSystem<M>) {
+        self.schedules.add(label, system);
+    }
+
+    pub fn run_system(&mut self, label: &ScheduleLabel) {
+        if let Some(mut systems) = self.schedules.take_systems(label) {
+            systems.run(self);
+            self.schedules.put_systems(label, systems);
+        }
     }
 
     pub fn register_module<T: Module>(&mut self) {
@@ -86,7 +99,7 @@ impl World {
     pub fn flush_commands(&mut self) {
         while !self.command_queue.is_empty() {
             let commands = std::mem::take(&mut self.command_queue.commands);
-            
+
             for command in commands {
                 command.execute(self);
             }

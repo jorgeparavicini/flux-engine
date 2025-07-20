@@ -1,14 +1,19 @@
+use std::thread::sleep;
+use std::time::Duration;
 use flux_ecs::commands::Commands;
 use flux_ecs::component::Component;
 use flux_ecs::query::Query;
 use flux_ecs::resource::{Res, Resource};
 use flux_ecs::schedule::ScheduleLabel;
+use flux_ecs::schedule::ScheduleLabel::Initialization;
 use flux_ecs::world::World;
 use flux_renderer::RendererPlugin;
 
 fn main() {
     let mut world = World::new();
     world.add_plugin(RendererPlugin);
+    world.run_system(&Initialization);
+    sleep(Duration::from_secs(1));
 }
 
 struct Time {
@@ -40,7 +45,7 @@ fn command_system(mut commands: Commands) {
 
 fn test() {
     let mut world = World::new();
-    world.insert_resource(Time { seconds: 42.0 });
+    world.add_resource(Time { seconds: 42.0 });
     world.spawn((TestComponent {},));
 
     //Add a system that prints the entity index

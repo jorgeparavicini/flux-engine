@@ -15,7 +15,7 @@ pub struct CreateResource<T: Resource> {
 
 impl<T: Resource> Command for CreateResource<T> {
     fn execute(self: Box<Self>, world: &mut World) {
-        world.insert_resource(self.resource);
+        world.add_resource(self.resource);
     }
 }
 

@@ -18,6 +18,12 @@ pub struct Schedules {
     schedule_map: HashMap<ScheduleLabel, Schedule>,
 }
 
+impl Default for Schedules {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Schedules {
     pub fn new() -> Self {
         Self {
@@ -43,6 +49,18 @@ impl Schedules {
     pub fn run_schedule(&mut self, schedule: &ScheduleLabel, world: &mut World) {
         if let Some(schedule) = self.schedule_map.get_mut(schedule) {
             schedule.systems.run(world);
+        }
+    }
+
+    pub fn take_systems(&mut self, schedule: &ScheduleLabel) -> Option<Systems> {
+        self.schedule_map.get_mut(schedule).map(|schedule| {
+            std::mem::take(&mut schedule.systems)
+        })
+    }
+
+    pub fn put_systems(&mut self, schedule: &ScheduleLabel, systems: Systems) {
+        if let Some(sched) = self.schedule_map.get_mut(schedule) {
+            sched.systems = systems;
         }
     }
 }

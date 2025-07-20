@@ -1,5 +1,3 @@
-#![feature(let_chains)]
-
 mod archetype;
 mod archetype_graph;
 mod archetypes;

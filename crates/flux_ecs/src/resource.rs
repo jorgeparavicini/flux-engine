@@ -1,6 +1,6 @@
 use crate::system::parameter::SystemParam;
 use crate::world::World;
-use std::any::{Any, TypeId};
+use std::any::{type_name, Any, TypeId};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::ops::Deref;
@@ -80,7 +80,7 @@ impl<T: Resource> SystemParam for Res<'_, T> {
         _state: &'state Self::State,
         world: &'world mut World,
     ) -> Self::Item<'world, 'state> {
-        let resource = world.get_resource::<T>().expect("resource not found");
+        let resource = world.get_resource::<T>().unwrap_or_else(|| panic!("Resource {} not found", type_name::<T>()));
         Res::new(resource)
     }
 }

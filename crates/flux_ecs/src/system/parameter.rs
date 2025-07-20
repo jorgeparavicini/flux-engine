@@ -4,7 +4,7 @@ use variadics_please::all_tuples;
 pub trait SystemParam: Sized {
     type State: 'static;
 
-    type Item<'world, 'state>: SystemParam<State=Self::State>;
+    type Item<'world, 'state>: SystemParam<State = Self::State>;
 
     fn init_state(world: &mut World) -> Self::State;
 
@@ -13,10 +13,9 @@ pub trait SystemParam: Sized {
         world: &'world mut World,
     ) -> Self::Item<'world, 'state>;
 
-    fn apply_buffers(
-        #[allow(unused_variables)] state: &Self::State,
-        #[allow(unused_variables)] world: &mut World,
-    ) {}
+    fn apply_buffers(state: &Self::State, world: &mut World) {
+        Self::Item::apply_buffers(state, world);
+    }
 }
 
 pub type SystemParamItem<'world, 'state, P> = <P as SystemParam>::Item<'world, 'state>;
@@ -44,4 +43,4 @@ macro_rules! impl_system_param {
     };
 }
 
-all_tuples!(impl_system_param, 0, 15, T, t);
+all_tuples!(impl_system_param, 0, 7, T, t);

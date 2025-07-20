@@ -3,8 +3,8 @@ use crate::world::World;
 
 #[derive(Default, PartialEq, Clone, Debug)]
 pub enum CommandFlushTechnique {
-    AfterEach,
     #[default]
+    AfterEach,
     AfterAll,
 }
 
@@ -29,12 +29,12 @@ impl Systems {
     pub fn run(&mut self, world: &mut World) {
         for system in &mut self.systems {
             system.run(world);
-            
+
             if self.command_flush_technique == CommandFlushTechnique::AfterEach {
                 world.flush_commands()
             }
         }
-        
+
         if self.command_flush_technique == CommandFlushTechnique::AfterAll {
             world.flush_commands()
         }
