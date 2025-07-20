@@ -1,10 +1,12 @@
-use ash::{vk, Instance};
+use ash::ext::debug_utils;
+use ash::vk::DebugUtilsMessengerEXT;
+use ash::{Instance, vk};
 use flux_ecs::commands::Commands;
 use flux_ecs::resource::{Res, Resource};
 use log::{debug, error, info, warn};
 use raw_window_handle::RawDisplayHandle;
 use std::collections::HashSet;
-use std::ffi::{c_void, CStr};
+use std::ffi::{CStr, c_void};
 
 const VALIDATION_ENABLED: bool = cfg!(debug_assertions);
 const VALIDATION_LAYER: &CStr = c"VK_LAYER_KHRONOS_validation";
@@ -36,6 +38,7 @@ impl Resource for RendererSettings {}
 pub struct VulkanInstance {
     pub(crate) entry: ash::Entry,
     pub(crate) instance: Instance,
+    pub(crate) debug_messenger: Option<DebugUtilsMessengerEXT>,
 }
 
 impl Resource for VulkanInstance {}
@@ -112,7 +115,7 @@ pub fn create_instance(
     .to_vec();
 
     if VALIDATION_ENABLED {
-        extensions.push(ash::ext::debug_utils::NAME.as_ptr());
+        extensions.push(debug_utils::NAME.as_ptr());
     }
 
     #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -134,16 +137,25 @@ pub fn create_instance(
         .enabled_extension_names(&extensions)
         .flags(create_flags);
 
-    let mut debug_messenger = get_debug_messenger_create_info();
+    let mut debug_info = get_debug_messenger_create_info();
     if VALIDATION_ENABLED {
-        create_info = create_info.push_next(&mut debug_messenger);
+        create_info = create_info.push_next(&mut debug_info);
     }
 
     let instance: Instance = unsafe { entry.create_instance(&create_info, None)? };
 
-    // TODO: Create debug messenger
+    let mut debug_messenger = None;
+    if VALIDATION_ENABLED {
+        let debug_utils_loader = debug_utils::Instance::new(&entry, &instance);
+        debug_messenger =
+            unsafe { Some(debug_utils_loader.create_debug_utils_messenger(&debug_info, None)?) };
+    }
 
-    commands.insert_resource(VulkanInstance { entry, instance });
+    commands.insert_resource(VulkanInstance {
+        entry,
+        instance,
+        debug_messenger,
+    });
 
     Ok(())
 }
