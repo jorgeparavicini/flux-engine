@@ -86,9 +86,8 @@ where
     }
 }
 
-// TODO: Convert to a macro to avoid boilerplate code.
-macro_rules! impl_system_param_function {
-        ($(($P:ident,$p:ident)),*) => {
+macro_rules! impl_infallible_system_param_function {
+    ($(($P:ident,$p:ident)),*) => {
         impl<Func, $($P: SystemParam),*> SystemParamFunction<fn($($P),*) -> ()> for Func
         where
             Func: 'static,
@@ -100,7 +99,8 @@ macro_rules! impl_system_param_function {
             fn run(&mut self, param: SystemParamItem<Self::Param>) -> Result<(), Self::Error> {
                 fn call_inner<F, $($P),*>(mut f: F, $($p: $P),*)
                 where
-                F: FnMut($($P),*) {
+                    F: FnMut($($P),*)
+                {
                     f($($p),*)
                 }
                 let ($($p,)*) = param;
@@ -111,97 +111,32 @@ macro_rules! impl_system_param_function {
     }
 }
 
+all_tuples!(impl_infallible_system_param_function, 0, 15, P, p);
 
-// TODO: For more parameters we need to create a macro for the SystemParamItem first
-all_tuples!(impl_system_param_function, 0, 3, P, p);
-
-impl<Func, Error> SystemParamFunction<fn() -> Result<(), Error>> for Func
-where
-    Func: 'static,
-    for<'a> &'a mut Func: FnMut() -> Result<(), Error>,
-    Error: std::error::Error + 'static,
-{
-    type Param = ();
-    type Error = Error;
-
-    fn run(&mut self, param: SystemParamItem<Self::Param>) -> Result<(), Self::Error> {
-        fn call_inner<F: FnMut() -> Result<(), E>, E: std::error::Error>(
-            mut f: F,
-        ) -> Result<(), E> {
-            f()
-        }
-        let () = param;
-        call_inner(self)
-    }
-}
-
-impl<Func, F0: SystemParam, Error> SystemParamFunction<fn(F0) -> Result<(), Error>> for Func
-where
-    Func: 'static,
-    for<'a> &'a mut Func:
-        FnMut(F0) -> Result<(), Error> + FnMut(SystemParamItem<F0>) -> Result<(), Error>,
-    Error: std::error::Error + 'static,
-{
-    type Param = (F0,);
-    type Error = Error;
-
-    fn run(&mut self, param: SystemParamItem<Self::Param>) -> Result<(), Self::Error> {
-        fn call_inner<F, F0, E>(mut f: F, f0: F0) -> Result<(), E>
+macro_rules! impl_fallible_system_param_function {
+    ($(($P:ident,$p:ident)),*) => {
+        impl<Func, $($P: SystemParam),*, Error> SystemParamFunction<fn($($P),*) -> Result<(), Error>> for Func
         where
-            F: FnMut(F0) -> Result<(), E>,
-            E: std::error::Error,
+            Func: 'static,
+            for<'a> &'a mut Func: FnMut($($P),*) -> Result<(), Error> + FnMut($(SystemParamItem<$P>,)*) -> Result<(), Error>,
+            Error: std::error::Error + 'static
         {
-            f(f0)
+            type Param = ($($P,)*);
+            type Error = Infallible;
+
+            fn run(&mut self, param: SystemParamItem<Self::Param>) -> Result<(), Self::Error> {
+                fn call_inner<F, $($P),*, E>(mut f: F, $($p: $P),*) -> Result<(), E>
+                where
+                    F: FnMut($($P),*) -> Result<(), E>,
+                    Error: std::error::Error + 'static
+                {
+                    f($($p),*)
+                }
+                let ($($p,)*) = param;
+                call_inner(self, $($p),*)
+            }
         }
-        let (f0,) = param;
-        call_inner(self, f0)
     }
 }
 
-impl<Func, F0: SystemParam, F1: SystemParam, Error>
-    SystemParamFunction<fn(F0, F1) -> Result<(), Error>> for Func
-where
-    Func: 'static,
-    for<'a> &'a mut Func: FnMut(F0, F1) -> Result<(), Error>
-        + FnMut(SystemParamItem<F0>, SystemParamItem<F1>) -> Result<(), Error>,
-    Error: std::error::Error + 'static,
-{
-    type Param = (F0, F1);
-    type Error = Error;
-
-    fn run(&mut self, param: SystemParamItem<Self::Param>) -> Result<(), Self::Error> {
-        fn call_inner<F, F0, F1, E>(mut f: F, f0: F0, f1: F1) -> Result<(), E>
-        where
-            F: FnMut(F0, F1) -> Result<(), E>,
-            E: std::error::Error,
-        {
-            f(f0, f1)
-        }
-        let (f0, f1) = param;
-        call_inner(self, f0, f1)
-    }
-}
-
-impl<Func, F0: SystemParam, F1: SystemParam, F2: SystemParam, Error>
-    SystemParamFunction<fn(F0, F1, F2) -> Result<(), Error>> for Func
-where
-    Func: 'static,
-    for<'a> &'a mut Func: FnMut(F0, F1, F2) -> Result<(), Error>
-        + FnMut(SystemParamItem<F0>, SystemParamItem<F1>, SystemParamItem<F2>) -> Result<(), Error>,
-    Error: std::error::Error + 'static,
-{
-    type Param = (F0, F1, F2);
-    type Error = Error;
-
-    fn run(&mut self, param: SystemParamItem<Self::Param>) -> Result<(), Self::Error> {
-        fn call_inner<F, F0, F1, F2, E>(mut f: F, f0: F0, f1: F1, f2: F2) -> Result<(), E>
-        where
-            F: FnMut(F0, F1, F2) -> Result<(), E>,
-            E: std::error::Error,
-        {
-            f(f0, f1, f2)
-        }
-        let (f0, f1, f2) = param;
-        call_inner(self, f0, f1, f2)
-    }
-}
+all_tuples!(impl_fallible_system_param_function, 0, 15, P, p);
