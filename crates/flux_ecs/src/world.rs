@@ -76,6 +76,10 @@ impl World {
     pub fn add_resource<T: Resource>(&mut self, resource: T) {
         self.resources.insert(resource);
     }
+    
+    pub fn remove_resource<T: Resource>(&mut self) -> Option<T> {
+        self.resources.remove::<T>()
+    }
 
     pub fn add_system<M>(&mut self, label: ScheduleLabel, system: impl IntoSystem<M>) {
         self.schedules.add(label, system);

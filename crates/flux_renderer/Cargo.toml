@@ -8,7 +8,6 @@ flux_ecs = { path = "../flux_ecs" }
 
 ash = { version = "0.38.0", features = ["linked"] }
 ash-window = "0.13.0"
-anyhow = "1.0.98"
 log = "0.4.27"
 raw-window-handle = "0.6.2"
 winit = "0.30.11"

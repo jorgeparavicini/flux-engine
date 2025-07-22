@@ -4,15 +4,18 @@ use ash::{Instance, vk};
 use flux_ecs::commands::Commands;
 use flux_ecs::resource::{Res, Resource};
 use log::{debug, error, info, warn};
-use raw_window_handle::RawDisplayHandle;
+use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use std::collections::HashSet;
 use std::ffi::{CStr, c_void};
+use std::ops::Deref;
 
 const VALIDATION_ENABLED: bool = cfg!(debug_assertions);
 const VALIDATION_LAYER: &CStr = c"VK_LAYER_KHRONOS_validation";
 
 pub trait SurfaceProvider {
-    fn get_window_handle(&self) -> RawDisplayHandle;
+    fn get_display_handle(&self) -> RawDisplayHandle;
+
+    fn get_window_handle(&self) -> RawWindowHandle;
 }
 
 pub struct SurfaceProviderResource {
@@ -20,6 +23,14 @@ pub struct SurfaceProviderResource {
 }
 
 impl Resource for SurfaceProviderResource {}
+
+impl Deref for SurfaceProviderResource {
+    type Target = Box<dyn SurfaceProvider>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.provider
+    }
+}
 
 pub struct AppVersion {
     pub major: u32,
@@ -38,16 +49,16 @@ impl Resource for RendererSettings {}
 pub struct VulkanInstance {
     pub(crate) entry: ash::Entry,
     pub(crate) instance: Instance,
-    pub(crate) debug_messenger: Option<DebugUtilsMessengerEXT>,
+    debug_messenger: Option<DebugUtilsMessengerEXT>,
 }
 
 impl Resource for VulkanInstance {}
 
-impl Drop for VulkanInstance {
-    fn drop(&mut self) {
-        unsafe {
-            self.instance.destroy_instance(None);
-        }
+impl Deref for VulkanInstance {
+    type Target = Instance;
+
+    fn deref(&self) -> &Self::Target {
+        &self.instance
     }
 }
 
@@ -56,6 +67,7 @@ pub fn create_instance(
     renderer_settings: Option<Res<RendererSettings>>,
     mut commands: Commands,
 ) -> Result<(), vk::Result> {
+    info!("Creating vulkan instance");
     let entry = ash::Entry::linked();
 
     // TODO: How do we make this configurable? As well as the application version?
@@ -110,7 +122,7 @@ pub fn create_instance(
     };
 
     let mut extensions = ash_window::enumerate_required_extensions(
-        surface_provider_resource.provider.get_window_handle(),
+        surface_provider_resource.provider.get_display_handle(),
     )?
     .to_vec();
 
@@ -198,4 +210,23 @@ extern "system" fn debug_callback(
     }
 
     vk::FALSE
+}
+
+pub fn destroy_instance(
+    instance: Res<VulkanInstance>,
+    mut commands: Commands,
+) {
+    info!("Destroying vulkan instance");
+    if let Some(debug_messenger) = instance.debug_messenger {
+        unsafe {
+            let debug_utils_loader = debug_utils::Instance::new(&instance.entry, &instance);
+            debug_utils_loader.destroy_debug_utils_messenger(debug_messenger, None);
+        }
+    }
+
+    unsafe {
+        instance.destroy_instance(None);
+    }
+
+    commands.remove_resource::<VulkanInstance>();
 }

@@ -7,6 +7,7 @@ use std::collections::HashMap;
 pub enum ScheduleLabel {
     Initialization,
     Main,
+    Destroy,
 }
 
 #[derive(Default)]

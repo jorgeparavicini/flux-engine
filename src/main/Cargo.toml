@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 flux_ecs = { path = "../../crates/flux_ecs" }
 flux_renderer = { path = "../../crates/flux_renderer" }
+pretty_env_logger = "0.5.0"

@@ -19,6 +19,16 @@ impl<T: Resource> Command for CreateResource<T> {
     }
 }
 
+pub struct RemoveResource<T: Resource> {
+    _phantom: std::marker::PhantomData<T>,
+}
+
+impl<T: Resource> Command for RemoveResource<T> {
+    fn execute(self: Box<Self>, world: &mut World) {
+        world.remove_resource::<T>();
+    }
+}
+
 #[derive(Default)]
 pub struct CommandQueue {
     pub commands: VecDeque<Box<dyn Command>>,
@@ -55,6 +65,12 @@ impl Commands {
 
     pub fn insert_resource<T: Resource>(&mut self, resource: T) {
         self.buffer.borrow_mut().push_back(Box::new(CreateResource { resource }));
+    }
+    
+    pub fn remove_resource<T: Resource>(&mut self) {
+        self.buffer.borrow_mut().push_back(Box::new(RemoveResource::<T> {
+            _phantom: std::marker::PhantomData,
+        }));
     }
 }
 
