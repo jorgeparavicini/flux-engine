@@ -13,9 +13,7 @@ pub trait SystemParam: Sized {
         world: &'world mut World,
     ) -> Self::Item<'world, 'state>;
 
-    fn apply_buffers(state: &Self::State, world: &mut World) {
-        Self::Item::apply_buffers(state, world);
-    }
+    fn apply_buffers(_state: &Self::State, _world: &mut World) {}
 }
 
 pub type SystemParamItem<'world, 'state, P> = <P as SystemParam>::Item<'world, 'state>;
@@ -38,6 +36,11 @@ macro_rules! impl_system_param {
                 let ($($t,)*) = state;
                 $(let $t = $T::get_param($t, unsafe { &mut *(world as *mut World) });)*
                 ($($t,)*)
+            }
+
+            fn apply_buffers(state: &Self::State, world: &mut World) {
+                let ($($t,)*) = state;
+                $($T::apply_buffers($t, world);)*
             }
         }
     };
