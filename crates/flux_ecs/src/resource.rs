@@ -2,6 +2,7 @@ use crate::system::parameter::SystemParam;
 use crate::world::World;
 use std::any::{Any, TypeId, type_name};
 use std::collections::HashMap;
+use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::ops::Deref;
 
@@ -44,10 +45,17 @@ impl Resources {
 }
 
 // TODO: This is more related to a query than a resource
-#[derive(Debug)]
 pub struct Res<'world, T: Resource> {
     resource: &'world T,
     _phantom: PhantomData<&'world T>,
+}
+
+impl<'world, T: Resource + Debug> Debug for Res<'world, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Res")
+            .field("resource", &self.resource)
+            .finish()
+    }
 }
 
 impl<'world, T: Resource> Res<'world, T> {

@@ -1,6 +1,5 @@
 use crate::instance::VulkanInstance;
 use crate::surface::VulkanSurface;
-use ash::vk::PhysicalDeviceProperties;
 use ash::{khr, vk};
 use flux_ecs::commands::Commands;
 use flux_ecs::resource::{Res, Resource};
@@ -11,6 +10,7 @@ use std::fmt::{Debug, Display};
 use std::ops::Deref;
 use thiserror::Error;
 
+// TODO: This should probably not be called `DeviceRequirements` as it is also used to create the logical device
 #[derive(Debug, Clone)]
 pub struct DeviceRequirements {
     pub extensions: Vec<&'static CStr>,
@@ -70,13 +70,19 @@ impl Display for NoPhysicalDevicesFoundError {
 pub struct PhysicalDevice {
     pub physical_device: vk::PhysicalDevice,
     pub indices: QueueFamilyIndices,
-    pub properties: PhysicalDeviceProperties,
+    pub properties: vk::PhysicalDeviceProperties,
+    pub features: vk::PhysicalDeviceFeatures,
 }
 
 impl Debug for PhysicalDevice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PhysicalDevice")
-            .field("physical_device", &self.properties.device_name)
+            .field(
+                "physical_device",
+                &unsafe { CStr::from_ptr(self.properties.device_name.as_ptr()) }
+                    .to_str()
+                    .unwrap_or("Unknown Device"),
+            )
             .field("indices", &self.indices)
             .finish()
     }
@@ -132,13 +138,16 @@ pub fn create_physical_device(
 
     info!(
         "Best physical device found: {0:?}",
-        unsafe { CStr::from_ptr(best_device_evaluation.properties.device_name.as_ptr()) }.to_str().unwrap()
+        unsafe { CStr::from_ptr(best_device_evaluation.properties.device_name.as_ptr()) }
+            .to_str()
+            .unwrap()
     );
 
     commands.insert_resource(PhysicalDevice {
         physical_device: best_device_evaluation.device,
         indices: best_device_evaluation.indices,
         properties: best_device_evaluation.properties,
+        features: best_device_evaluation.features,
     });
 
     Ok(())
@@ -148,7 +157,8 @@ struct DeviceEvaluation {
     score: u32,
     indices: QueueFamilyIndices,
     device: vk::PhysicalDevice,
-    properties: PhysicalDeviceProperties,
+    properties: vk::PhysicalDeviceProperties,
+    features: vk::PhysicalDeviceFeatures,
 }
 
 fn evaluate_physical_device(
@@ -173,7 +183,7 @@ fn evaluate_physical_device(
 
     let indices = QueueFamilyIndices::get(entry, instance, physical_device, surface)?;
     check_required_device_extensions(instance, physical_device, &device_requirements.extensions)?;
-    check_required_features(instance, physical_device)?;
+    let features = get_required_features(instance, physical_device)?;
     check_swapchain_support(entry, instance, physical_device, surface)?;
 
     let score = get_physical_device_score(&properties, &indices, device_requirements);
@@ -183,6 +193,7 @@ fn evaluate_physical_device(
         indices,
         device: physical_device,
         properties,
+        features,
     })
 }
 
@@ -214,20 +225,24 @@ fn check_required_device_extensions(
     Ok(())
 }
 
-fn check_required_features(
+fn get_required_features(
     instance: &ash::Instance,
     physical_device: vk::PhysicalDevice,
-) -> Result<(), SuitabilityError> {
-    let features = unsafe { instance.get_physical_device_features(physical_device) };
+) -> Result<vk::PhysicalDeviceFeatures, SuitabilityError> {
+    let features = unsafe {
+        let mut features = vk::PhysicalDeviceFeatures2::default();
+        instance.get_physical_device_features2(physical_device, &mut features);
+        features
+    };
 
-    if features.sampler_anisotropy != vk::TRUE {
+    if features.features.sampler_anisotropy != vk::TRUE {
         return Err(SuitabilityError::MissingDeviceFeatures {
             device: physical_device,
             feature: "sampler_anisotropy",
         });
     }
 
-    Ok(())
+    Ok(features.features)
 }
 
 fn check_swapchain_support(
@@ -305,10 +320,7 @@ impl QueueFamilyIndices {
                     .queue_flags
                     .contains(vk::QueueFlags::TRANSFER)
             })
-            .ok_or(SuitabilityError::MissingQueueFamily {
-                device: physical_device,
-                queue_family: "transfer",
-            })?;
+            .unwrap_or(graphics); // The graphics queue can also handle transfers
 
         let surface_loader = khr::surface::Instance::new(entry, instance);
         let present = properties
@@ -334,7 +346,7 @@ impl QueueFamilyIndices {
 }
 
 fn get_physical_device_score(
-    properties: &PhysicalDeviceProperties,
+    properties: &vk::PhysicalDeviceProperties,
     indices: &QueueFamilyIndices,
     device_requirements: &DeviceRequirements,
 ) -> u32 {
@@ -357,4 +369,92 @@ fn get_physical_device_score(
     }
 
     score
+}
+
+pub struct Device {
+    pub device: ash::Device,
+    pub graphics_queue: vk::Queue,
+    pub present_queue: vk::Queue,
+    pub transfer_queue: vk::Queue,
+}
+
+impl Resource for Device {}
+
+impl Deref for Device {
+    type Target = ash::Device;
+
+    fn deref(&self) -> &Self::Target {
+        &self.device
+    }
+}
+
+pub fn create_logical_device(
+    instance: Res<VulkanInstance>,
+    physical_device: Res<PhysicalDevice>,
+    device_requirements: Option<Res<DeviceRequirements>>,
+    mut commands: Commands,
+) -> Result<(), vk::Result> {
+    info!("Creating logical device for physical device: {physical_device:?}",);
+
+    let mut unique_indices = HashSet::new();
+    unique_indices.insert(physical_device.indices.graphics);
+    unique_indices.insert(physical_device.indices.present);
+    unique_indices.insert(physical_device.indices.transfer);
+
+    debug!(
+        "Creating logical device with {} queue families",
+        unique_indices.len()
+    );
+
+    let queue_create_infos: Vec<vk::DeviceQueueCreateInfo> = unique_indices
+        .into_iter()
+        .map(|index| {
+            vk::DeviceQueueCreateInfo::default()
+                .queue_family_index(index)
+                .queue_priorities(&[1.0])
+        })
+        .collect();
+
+    let requirements = device_requirements
+        .map(|res| res.into_inner())
+        .unwrap_or_default();
+
+    let extensions = requirements
+        .extensions
+        .iter()
+        .map(|&e| e.as_ptr())
+        .collect::<Vec<_>>();
+
+    let mut physical_device_features_2 =
+        vk::PhysicalDeviceFeatures2::default().features(physical_device.features);
+
+    let create_info = vk::DeviceCreateInfo::default()
+        .queue_create_infos(&queue_create_infos)
+        .enabled_extension_names(&extensions)
+        .push_next(&mut physical_device_features_2);
+
+    let device = unsafe { instance.create_device(**physical_device, &create_info, None) }?;
+
+    let graphics_queue = unsafe { device.get_device_queue(physical_device.indices.graphics, 0) };
+    let present_queue = unsafe { device.get_device_queue(physical_device.indices.present, 0) };
+    let transfer_queue = unsafe { device.get_device_queue(physical_device.indices.transfer, 0) };
+
+    let logical_device = Device {
+        device,
+        graphics_queue,
+        present_queue,
+        transfer_queue,
+    };
+
+    commands.insert_resource(logical_device);
+
+    Ok(())
+}
+
+pub fn destroy_logical_device(device: Res<Device>, mut commands: Commands) {
+    info!("Destroying logical device");
+
+    unsafe { device.destroy_device(None) };
+
+    commands.remove_resource::<Device>();
 }

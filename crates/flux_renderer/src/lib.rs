@@ -7,7 +7,7 @@ use raw_window_handle::{
     HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
 };
 use winit::event_loop::EventLoop;
-use crate::device::create_physical_device;
+use crate::device::{create_logical_device, create_physical_device, destroy_logical_device};
 
 mod instance;
 mod surface;
@@ -41,7 +41,9 @@ impl Plugin for RendererPlugin {
         world.add_system(ScheduleLabel::Initialization, create_instance);
         world.add_system(ScheduleLabel::Initialization, create_surface);
         world.add_system(ScheduleLabel::Initialization, create_physical_device);
+        world.add_system(ScheduleLabel::Initialization, create_logical_device);
         
+        world.add_system(ScheduleLabel::Destroy, destroy_logical_device);
         world.add_system(ScheduleLabel::Destroy, destroy_surface);
         world.add_system(ScheduleLabel::Destroy, destroy_instance);
     }
