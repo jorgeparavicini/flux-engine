@@ -1,6 +1,6 @@
 use crate::system::parameter::SystemParam;
 use crate::world::World;
-use std::any::{type_name, Any, TypeId};
+use std::any::{Any, TypeId, type_name};
 use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::ops::Deref;
@@ -59,6 +59,12 @@ impl<'world, T: Resource> Res<'world, T> {
     }
 }
 
+impl<'world, T: Resource + Clone> Res<'world, T> {
+    pub fn into_inner(self) -> T {
+        self.resource.clone()
+    }
+}
+
 impl<T: Resource> Deref for Res<'_, T> {
     type Target = T;
 
@@ -80,7 +86,9 @@ impl<T: Resource> SystemParam for Res<'_, T> {
         _state: &'state Self::State,
         world: &'world mut World,
     ) -> Self::Item<'world, 'state> {
-        let resource = world.get_resource::<T>().unwrap_or_else(|| panic!("Resource {} not found", type_name::<T>()));
+        let resource = world
+            .get_resource::<T>()
+            .unwrap_or_else(|| panic!("Resource {} not found", type_name::<T>()));
         Res::new(resource)
     }
 }

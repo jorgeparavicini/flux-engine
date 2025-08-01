@@ -67,7 +67,7 @@ pub fn create_instance(
     renderer_settings: Option<Res<RendererSettings>>,
     mut commands: Commands,
 ) -> Result<(), vk::Result> {
-    info!("Creating vulkan instance");
+    info!("Creating the vulkan instance");
     let entry = ash::Entry::linked();
 
     // TODO: How do we make this configurable? As well as the application version?
