@@ -16,6 +16,8 @@ pub trait SurfaceProvider {
     fn get_display_handle(&self) -> RawDisplayHandle;
 
     fn get_window_handle(&self) -> RawWindowHandle;
+    
+    fn get_extent(&self) -> (u32, u32);
 }
 
 pub struct SurfaceProviderResource {

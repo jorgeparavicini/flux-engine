@@ -23,7 +23,7 @@ impl Default for DeviceRequirements {
             extensions: vec![
                 khr::swapchain::NAME,
                 #[cfg(any(target_os = "macos", target_os = "ios"))]
-                ash::khr::portability_subset::NAME,
+                khr::portability_subset::NAME,
             ],
             prefer_discrete_gpu: true,
         }
@@ -72,6 +72,9 @@ pub struct PhysicalDevice {
     pub indices: QueueFamilyIndices,
     pub properties: vk::PhysicalDeviceProperties,
     pub features: vk::PhysicalDeviceFeatures,
+    pub capabilities: vk::SurfaceCapabilitiesKHR,
+    pub formats: Vec<vk::SurfaceFormatKHR>,
+    pub present_modes: Vec<vk::PresentModeKHR>,
 }
 
 impl Debug for PhysicalDevice {
@@ -138,27 +141,27 @@ pub fn create_physical_device(
 
     info!(
         "Best physical device found: {0:?}",
-        unsafe { CStr::from_ptr(best_device_evaluation.properties.device_name.as_ptr()) }
-            .to_str()
-            .unwrap()
+        unsafe {
+            CStr::from_ptr(
+                best_device_evaluation
+                    .physical_device
+                    .properties
+                    .device_name
+                    .as_ptr(),
+            )
+        }
+        .to_str()
+        .unwrap()
     );
 
-    commands.insert_resource(PhysicalDevice {
-        physical_device: best_device_evaluation.device,
-        indices: best_device_evaluation.indices,
-        properties: best_device_evaluation.properties,
-        features: best_device_evaluation.features,
-    });
+    commands.insert_resource(best_device_evaluation.physical_device);
 
     Ok(())
 }
 
 struct DeviceEvaluation {
     score: u32,
-    indices: QueueFamilyIndices,
-    device: vk::PhysicalDevice,
-    properties: vk::PhysicalDeviceProperties,
-    features: vk::PhysicalDeviceFeatures,
+    physical_device: PhysicalDevice,
 }
 
 fn evaluate_physical_device(
@@ -183,17 +186,25 @@ fn evaluate_physical_device(
 
     let indices = QueueFamilyIndices::get(entry, instance, physical_device, surface)?;
     check_required_device_extensions(instance, physical_device, &device_requirements.extensions)?;
-    let features = get_required_features(instance, physical_device)?;
-    check_swapchain_support(entry, instance, physical_device, surface)?;
+    let features = query_required_features(instance, physical_device)?;
+    let (capabilities, formats, present_modes) =
+        query_swapchain_support(entry, instance, physical_device, surface)?;
 
     let score = get_physical_device_score(&properties, &indices, device_requirements);
 
+    let physical_device = PhysicalDevice {
+        features,
+        physical_device,
+        properties,
+        indices,
+        capabilities,
+        formats,
+        present_modes,
+    };
+
     Ok(DeviceEvaluation {
         score,
-        indices,
-        device: physical_device,
-        properties,
-        features,
+        physical_device,
     })
 }
 
@@ -225,7 +236,7 @@ fn check_required_device_extensions(
     Ok(())
 }
 
-fn get_required_features(
+fn query_required_features(
     instance: &ash::Instance,
     physical_device: vk::PhysicalDevice,
 ) -> Result<vk::PhysicalDeviceFeatures, SuitabilityError> {
@@ -245,13 +256,30 @@ fn get_required_features(
     Ok(features.features)
 }
 
-fn check_swapchain_support(
+fn query_swapchain_support(
     entry: &ash::Entry,
     instance: &ash::Instance,
     physical_device: vk::PhysicalDevice,
     surface: vk::SurfaceKHR,
-) -> Result<(), SuitabilityError> {
+) -> Result<
+    (
+        vk::SurfaceCapabilitiesKHR,
+        Vec<vk::SurfaceFormatKHR>,
+        Vec<vk::PresentModeKHR>,
+    ),
+    SuitabilityError,
+> {
     let surface_loader = khr::surface::Instance::new(entry, instance);
+
+    let capablities = unsafe {
+        surface_loader
+            .get_physical_device_surface_capabilities(physical_device, surface)
+            .or(Err(SuitabilityError::SurfaceNotSupported {
+                device: physical_device,
+                surface,
+            }))?
+    };
+
     let formats = unsafe {
         surface_loader
             .get_physical_device_surface_formats(physical_device, surface)
@@ -277,7 +305,7 @@ fn check_swapchain_support(
         });
     }
 
-    Ok(())
+    Ok((capablities, formats, present_modes))
 }
 
 #[derive(Debug, Clone, Copy)]

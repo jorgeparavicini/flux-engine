@@ -1,5 +1,7 @@
-use crate::instance::{SurfaceProvider, SurfaceProviderResource, create_instance, destroy_instance};
+use crate::device::{create_logical_device, create_physical_device, destroy_logical_device};
+use crate::instance::{create_instance, destroy_instance, SurfaceProvider, SurfaceProviderResource};
 use crate::surface::{create_surface, destroy_surface};
+use crate::swapchain::{create_swapchain, destroy_swapchain};
 use flux_ecs::plugin::Plugin;
 use flux_ecs::schedule::ScheduleLabel;
 use flux_ecs::world::World;
@@ -7,11 +9,11 @@ use raw_window_handle::{
     HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
 };
 use winit::event_loop::EventLoop;
-use crate::device::{create_logical_device, create_physical_device, destroy_logical_device};
 
 mod instance;
 mod surface;
 mod device;
+mod swapchain;
 
 pub struct RendererPlugin;
 
@@ -26,6 +28,11 @@ impl SurfaceProvider for WinitSurfaceProvider {
 
     fn get_window_handle(&self) -> RawWindowHandle {
         self.window.raw_window_handle().unwrap()
+    }
+
+    fn get_extent(&self) -> (u32, u32) {
+        let size = self.window.inner_size();
+        (size.width, size.height)
     }
 }
 
@@ -42,7 +49,9 @@ impl Plugin for RendererPlugin {
         world.add_system(ScheduleLabel::Initialization, create_surface);
         world.add_system(ScheduleLabel::Initialization, create_physical_device);
         world.add_system(ScheduleLabel::Initialization, create_logical_device);
-        
+        world.add_system(ScheduleLabel::Initialization, create_swapchain);
+
+        world.add_system(ScheduleLabel::Destroy, destroy_swapchain);
         world.add_system(ScheduleLabel::Destroy, destroy_logical_device);
         world.add_system(ScheduleLabel::Destroy, destroy_surface);
         world.add_system(ScheduleLabel::Destroy, destroy_instance);
