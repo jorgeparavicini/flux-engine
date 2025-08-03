@@ -4,14 +4,15 @@ use crate::surface::VulkanSurface;
 use ash::{khr, vk};
 use flux_ecs::commands::Commands;
 use flux_ecs::resource::{Res, Resource};
-use std::ops::Deref;
 use log::debug;
+use std::ops::Deref;
 
 pub struct Swapchain {
     format: vk::SurfaceFormatKHR,
     extent: vk::Extent2D,
     swapchain: vk::SwapchainKHR,
     images: Vec<vk::Image>,
+    image_views: Vec<vk::ImageView>,
 }
 
 impl Resource for Swapchain {}
@@ -101,14 +102,42 @@ pub fn create_swapchain(
     let swapchain = unsafe { loader.create_swapchain(&create_info, None) }?;
     let images = unsafe { loader.get_swapchain_images(swapchain)? };
 
+    let image_views = images
+        .iter()
+        .map(|image| create_image_view(*image, surface_format.format, &device))
+        .collect::<Vec<_>>();
+
     commands.insert_resource(Swapchain {
         swapchain,
         images,
         format: surface_format,
         extent,
+        image_views,
     });
 
     Ok(())
+}
+
+fn create_image_view(image: vk::Image, format: vk::Format, device: &Device) -> vk::ImageView {
+    let create_info = vk::ImageViewCreateInfo::default()
+        .image(image)
+        .view_type(vk::ImageViewType::TYPE_2D)
+        .format(format)
+        .components(vk::ComponentMapping {
+            r: vk::ComponentSwizzle::IDENTITY,
+            g: vk::ComponentSwizzle::IDENTITY,
+            b: vk::ComponentSwizzle::IDENTITY,
+            a: vk::ComponentSwizzle::IDENTITY,
+        })
+        .subresource_range(vk::ImageSubresourceRange {
+            aspect_mask: vk::ImageAspectFlags::COLOR,
+            base_mip_level: 0,
+            level_count: 1,
+            base_array_layer: 0,
+            layer_count: 1,
+        });
+
+    unsafe { device.create_image_view(&create_info, None).unwrap() }
 }
 
 pub fn destroy_swapchain(
@@ -121,6 +150,9 @@ pub fn destroy_swapchain(
     let loader = khr::swapchain::Device::new(&instance, &device);
 
     unsafe {
+        for &image_view in &swapchain.image_views {
+            device.destroy_image_view(image_view, None);
+        }
         loader.destroy_swapchain(**swapchain, None);
     }
 
