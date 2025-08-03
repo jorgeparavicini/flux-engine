@@ -1,14 +1,13 @@
-use std::ops::Deref;
 use crate::device::{Device, PhysicalDevice};
-use crate::instance::{SurfaceProvider, SurfaceProviderResource, VulkanInstance};
+use crate::instance::{SurfaceProviderResource, VulkanInstance};
 use crate::surface::VulkanSurface;
 use ash::{khr, vk};
 use flux_ecs::commands::Commands;
 use flux_ecs::resource::{Res, Resource};
+use std::ops::Deref;
+use log::debug;
 
-enum SwapchainInitializationError {}
-
-struct Swapchain {
+pub struct Swapchain {
     format: vk::SurfaceFormatKHR,
     extent: vk::Extent2D,
     swapchain: vk::SwapchainKHR,
@@ -31,8 +30,10 @@ pub fn create_swapchain(
     device: Res<Device>,
     surface: Res<VulkanSurface>,
     surface_provider: Res<SurfaceProviderResource>,
-    commands: &mut Commands,
+    mut commands: Commands,
 ) -> Result<(), vk::Result> {
+    debug!("Creating swapchain");
+
     let surface_format = physical_device
         .formats
         .iter()
@@ -116,6 +117,7 @@ pub fn destroy_swapchain(
     swapchain: Res<Swapchain>,
     mut commands: Commands,
 ) {
+    debug!("Destroying swapchain");
     let loader = khr::swapchain::Device::new(&instance, &device);
 
     unsafe {
