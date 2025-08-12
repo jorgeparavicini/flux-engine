@@ -1,3 +1,4 @@
+use crate::command_pool::{create_command_pools, destroy_command_pools};
 use crate::device::{create_logical_device, create_physical_device, destroy_logical_device};
 use crate::instance::{
     SurfaceProvider, SurfaceProviderResource, create_instance, destroy_instance,
@@ -13,6 +14,7 @@ use raw_window_handle::{
 };
 use winit::event_loop::EventLoop;
 
+mod command_pool;
 mod device;
 mod instance;
 mod pipeline;
@@ -55,7 +57,9 @@ impl Plugin for RendererPlugin {
         world.add_system(ScheduleLabel::Initialization, create_logical_device);
         world.add_system(ScheduleLabel::Initialization, create_swapchain);
         world.add_system(ScheduleLabel::Initialization, create_pipeline);
+        world.add_system(ScheduleLabel::Initialization, create_command_pools);
 
+        world.add_system(ScheduleLabel::Destroy, destroy_command_pools);
         world.add_system(ScheduleLabel::Destroy, destroy_pipeline);
         world.add_system(ScheduleLabel::Destroy, destroy_swapchain);
         world.add_system(ScheduleLabel::Destroy, destroy_logical_device);

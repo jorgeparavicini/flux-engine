@@ -413,8 +413,11 @@ fn get_physical_device_score(
 pub struct Device {
     pub device: ash::Device,
     pub graphics_queue: vk::Queue,
+    pub graphics_queue_index: u32,
     pub present_queue: vk::Queue,
+    pub present_queue_index: u32,
     pub transfer_queue: vk::Queue,
+    pub transfer_queue_index: u32,
 }
 
 impl Resource for Device {}
@@ -487,8 +490,11 @@ pub fn create_logical_device(
     let logical_device = Device {
         device,
         graphics_queue,
+        graphics_queue_index: physical_device.indices.graphics,
         present_queue,
+        present_queue_index: physical_device.indices.present,
         transfer_queue,
+        transfer_queue_index: physical_device.indices.transfer,
     };
 
     commands.insert_resource(logical_device);
