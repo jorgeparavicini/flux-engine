@@ -22,6 +22,7 @@ impl Default for DeviceRequirements {
         Self {
             extensions: vec![
                 khr::swapchain::NAME,
+                khr::dynamic_rendering::NAME,
                 #[cfg(any(target_os = "macos", target_os = "ios"))]
                 khr::portability_subset::NAME,
             ],
@@ -71,7 +72,6 @@ pub struct PhysicalDevice {
     pub physical_device: vk::PhysicalDevice,
     pub indices: QueueFamilyIndices,
     pub properties: vk::PhysicalDeviceProperties,
-    pub features: vk::PhysicalDeviceFeatures,
     pub capabilities: vk::SurfaceCapabilitiesKHR,
     pub formats: Vec<vk::SurfaceFormatKHR>,
     pub present_modes: Vec<vk::PresentModeKHR>,
@@ -186,14 +186,13 @@ fn evaluate_physical_device(
 
     let indices = QueueFamilyIndices::get(entry, instance, physical_device, surface)?;
     check_required_device_extensions(instance, physical_device, &device_requirements.extensions)?;
-    let features = query_required_features(instance, physical_device)?;
+    check_required_features(instance, physical_device)?;
     let (capabilities, formats, present_modes) =
         query_swapchain_support(entry, instance, physical_device, surface)?;
 
     let score = get_physical_device_score(&properties, &indices, device_requirements);
 
     let physical_device = PhysicalDevice {
-        features,
         physical_device,
         properties,
         indices,
@@ -213,6 +212,8 @@ fn check_required_device_extensions(
     physical_device: vk::PhysicalDevice,
     required_extensions: &Vec<&'static CStr>,
 ) -> Result<(), SuitabilityError> {
+    debug!("Checking device for required extensions {required_extensions:?}",);
+
     let available_extensions = unsafe {
         instance
             .enumerate_device_extension_properties(physical_device)
@@ -236,15 +237,18 @@ fn check_required_device_extensions(
     Ok(())
 }
 
-fn query_required_features(
+fn check_required_features(
     instance: &ash::Instance,
     physical_device: vk::PhysicalDevice,
-) -> Result<vk::PhysicalDeviceFeatures, SuitabilityError> {
-    let features = unsafe {
-        let mut features = vk::PhysicalDeviceFeatures2::default();
+) -> Result<(), SuitabilityError> {
+    let mut dynamic_rendering_features = vk::PhysicalDeviceDynamicRenderingFeatures::default();
+
+    let mut features =
+        vk::PhysicalDeviceFeatures2::default().push_next(&mut dynamic_rendering_features);
+
+    unsafe {
         instance.get_physical_device_features2(physical_device, &mut features);
-        features
-    };
+    }
 
     if features.features.sampler_anisotropy != vk::TRUE {
         return Err(SuitabilityError::MissingDeviceFeatures {
@@ -253,7 +257,14 @@ fn query_required_features(
         });
     }
 
-    Ok(features.features)
+    if dynamic_rendering_features.dynamic_rendering != vk::TRUE {
+        return Err(SuitabilityError::MissingDeviceFeatures {
+            device: physical_device,
+            feature: "dynamic_rendering",
+        });
+    }
+
+    Ok(())
 }
 
 fn query_swapchain_support(
@@ -453,8 +464,14 @@ pub fn create_logical_device(
         .map(|&e| e.as_ptr())
         .collect::<Vec<_>>();
 
-    let mut physical_device_features_2 =
-        vk::PhysicalDeviceFeatures2::default().features(physical_device.features);
+    let features = vk::PhysicalDeviceFeatures::default().sampler_anisotropy(true);
+
+    let mut dynamic_rendering_features =
+        vk::PhysicalDeviceDynamicRenderingFeatures::default().dynamic_rendering(true);
+
+    let mut physical_device_features_2 = vk::PhysicalDeviceFeatures2::default()
+        .features(features)
+        .push_next(&mut dynamic_rendering_features);
 
     let create_info = vk::DeviceCreateInfo::default()
         .queue_create_infos(&queue_create_infos)

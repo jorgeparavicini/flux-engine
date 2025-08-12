@@ -8,11 +8,11 @@ use log::debug;
 use std::ops::Deref;
 
 pub struct Swapchain {
-    format: vk::SurfaceFormatKHR,
-    extent: vk::Extent2D,
-    swapchain: vk::SwapchainKHR,
-    images: Vec<vk::Image>,
-    image_views: Vec<vk::ImageView>,
+    pub format: vk::SurfaceFormatKHR,
+    pub extent: vk::Extent2D,
+    pub swapchain: vk::SwapchainKHR,
+    pub images: Vec<vk::Image>,
+    pub image_views: Vec<vk::ImageView>,
 }
 
 impl Resource for Swapchain {}
