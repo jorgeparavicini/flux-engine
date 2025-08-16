@@ -4,6 +4,7 @@ use ash::vk;
 use flux_ecs::commands::Commands;
 use flux_ecs::resource::{Res, Resource};
 use std::{io, slice};
+use std::ops::Deref;
 // TODO: Error handling is just a placeholder, needs to be improved
 
 #[repr(C)]
@@ -22,6 +23,14 @@ pub struct Pipeline {
 }
 
 impl Resource for Pipeline {}
+
+impl Deref for Pipeline {
+    type Target = vk::Pipeline;
+
+    fn deref(&self) -> &Self::Target {
+        &self.pipeline
+    }
+}
 
 pub fn create_pipeline(
     device: Res<Device>,
@@ -146,7 +155,7 @@ pub fn create_pipeline(
         .descriptor_count(1)
         .stage_flags(vk::ShaderStageFlags::FRAGMENT);
 
-    let bindings = &[ubo_binding, sampler_binding];
+    let bindings = &[ubo_binding];
     let descriptor_set_layout_create_info =
         vk::DescriptorSetLayoutCreateInfo::default().bindings(bindings);
 

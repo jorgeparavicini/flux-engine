@@ -75,17 +75,13 @@ pub struct PhysicalDevice {
     pub capabilities: vk::SurfaceCapabilitiesKHR,
     pub formats: Vec<vk::SurfaceFormatKHR>,
     pub present_modes: Vec<vk::PresentModeKHR>,
+    pub name: String,
 }
 
 impl Debug for PhysicalDevice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PhysicalDevice")
-            .field(
-                "physical_device",
-                &unsafe { CStr::from_ptr(self.properties.device_name.as_ptr()) }
-                    .to_str()
-                    .unwrap_or("Unknown Device"),
-            )
+            .field("physical_device", &self.name)
             .field("indices", &self.indices)
             .finish()
     }
@@ -177,12 +173,14 @@ fn evaluate_physical_device(
         properties.properties
     };
 
-    debug!(
-        "Checking suitability of physical device: {0:}",
-        unsafe { CStr::from_ptr(properties.device_name.as_ptr()) }
+    let name = unsafe {
+        CStr::from_ptr(properties.device_name.as_ptr())
             .to_str()
             .unwrap_or("Unknown Device")
-    );
+            .to_string()
+    };
+
+    debug!("Checking suitability of physical device: {0:}", &name);
 
     let indices = QueueFamilyIndices::get(entry, instance, physical_device, surface)?;
     check_required_device_extensions(instance, physical_device, &device_requirements.extensions)?;
@@ -199,6 +197,7 @@ fn evaluate_physical_device(
         capabilities,
         formats,
         present_modes,
+        name,
     };
 
     Ok(DeviceEvaluation {
@@ -221,12 +220,16 @@ fn check_required_device_extensions(
                 device: physical_device,
             }))?
             .iter()
-            .map(|ext| CStr::from_ptr(ext.extension_name.as_ptr()))
-            .collect::<HashSet<_>>()
+            .map(|ext| {
+                CStr::from_ptr(ext.extension_name.as_ptr())
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect::<HashSet<String>>()
     };
 
     for required_extension in required_extensions {
-        if !available_extensions.contains(required_extension) {
+        if !available_extensions.contains(required_extension.to_str().unwrap()) {
             return Err(SuitabilityError::MissingDeviceExtension {
                 device: physical_device,
                 extension: required_extension,

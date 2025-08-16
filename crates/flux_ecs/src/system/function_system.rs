@@ -111,7 +111,7 @@ macro_rules! impl_infallible_system_param_function {
     }
 }
 
-all_tuples!(impl_infallible_system_param_function, 0, 7, P, p);
+all_tuples!(impl_infallible_system_param_function, 0, 16, P, p);
 
 macro_rules! impl_fallible_system_param_function {
     ($(($P:ident,$p:ident)),*) => {
@@ -139,4 +139,4 @@ macro_rules! impl_fallible_system_param_function {
     }
 }
 
-all_tuples!(impl_fallible_system_param_function, 0, 7, P, p);
+all_tuples!(impl_fallible_system_param_function, 0, 16, P, p);

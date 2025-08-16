@@ -16,7 +16,7 @@ pub trait SurfaceProvider {
     fn get_display_handle(&self) -> RawDisplayHandle;
 
     fn get_window_handle(&self) -> RawWindowHandle;
-    
+
     fn get_extent(&self) -> (u32, u32);
 }
 
@@ -101,15 +101,14 @@ pub fn create_instance(
         .engine_version(vk::make_api_version(0, 1, 0, 0))
         .api_version(vk::make_api_version(0, 1, 4, 0));
 
-    let available_layers = unsafe {
-        entry
-            .enumerate_instance_layer_properties()?
-            .iter()
-            .map(|l| l.layer_name.as_ptr())
-            .collect::<HashSet<_>>()
-    };
+    let data = unsafe { entry.enumerate_instance_layer_properties()? };
 
-    if VALIDATION_ENABLED && !available_layers.contains(&VALIDATION_LAYER.as_ptr()) {
+    let available_layers = data
+        .iter()
+        .map(|l| unsafe { CStr::from_ptr(l.layer_name.as_ptr()) })
+        .collect::<HashSet<_>>();
+
+    if VALIDATION_ENABLED && !available_layers.contains(&VALIDATION_LAYER) {
         error!("Validation layers are not available");
     }
 
@@ -214,10 +213,7 @@ extern "system" fn debug_callback(
     vk::FALSE
 }
 
-pub fn destroy_instance(
-    instance: Res<VulkanInstance>,
-    mut commands: Commands,
-) {
+pub fn destroy_instance(instance: Res<VulkanInstance>, mut commands: Commands) {
     info!("Destroying vulkan instance");
     if let Some(debug_messenger) = instance.debug_messenger {
         unsafe {

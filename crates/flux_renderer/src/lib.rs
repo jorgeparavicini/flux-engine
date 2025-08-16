@@ -13,6 +13,10 @@ use raw_window_handle::{
     HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
 };
 use winit::event_loop::EventLoop;
+use crate::buffers::{create_index_buffer, create_uniform_buffer, create_vertex_buffer};
+use crate::command_buffer::create_command_buffer;
+use crate::depth_buffers::create_depth_buffers;
+use crate::descriptors::create_descriptors;
 
 mod command_pool;
 mod device;
@@ -20,6 +24,11 @@ mod instance;
 mod pipeline;
 mod surface;
 mod swapchain;
+mod command_buffer;
+mod depth_buffers;
+mod image;
+mod buffers;
+mod descriptors;
 
 pub struct RendererPlugin;
 
@@ -57,7 +66,13 @@ impl Plugin for RendererPlugin {
         world.add_system(ScheduleLabel::Initialization, create_logical_device);
         world.add_system(ScheduleLabel::Initialization, create_swapchain);
         world.add_system(ScheduleLabel::Initialization, create_pipeline);
+        world.add_system(ScheduleLabel::Initialization, create_depth_buffers);
         world.add_system(ScheduleLabel::Initialization, create_command_pools);
+        world.add_system(ScheduleLabel::Initialization, create_vertex_buffer);
+        world.add_system(ScheduleLabel::Initialization, create_index_buffer);
+        world.add_system(ScheduleLabel::Initialization, create_uniform_buffer);
+        world.add_system(ScheduleLabel::Initialization, create_descriptors);
+        world.add_system(ScheduleLabel::Initialization, create_command_buffer);
 
         world.add_system(ScheduleLabel::Destroy, destroy_command_pools);
         world.add_system(ScheduleLabel::Destroy, destroy_pipeline);
