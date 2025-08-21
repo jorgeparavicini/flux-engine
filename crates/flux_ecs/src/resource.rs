@@ -4,7 +4,7 @@ use std::any::{Any, TypeId, type_name};
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use std::ops::Deref;
+use std::ops::{Deref, DerefMut};
 
 pub trait Resource: 'static {}
 
@@ -101,6 +101,7 @@ impl<T: Resource> SystemParam for Res<'_, T> {
     }
 }
 
+// TODO: Not sure whether i prefer Option<Res<T>> or Res<Option<T>>.
 impl<T: Resource> SystemParam for Option<Res<'_, T>> {
     type State = ();
 
@@ -115,5 +116,68 @@ impl<T: Resource> SystemParam for Option<Res<'_, T>> {
         world: &'world mut World,
     ) -> Self::Item<'world, 'state> {
         world.get_resource::<T>().map(Res::new)
+    }
+}
+
+// TODO: Does this even need a phantom data?
+pub struct MutRes<'world, T: Resource> {
+    resource: &'world mut T,
+    _phantom: PhantomData<&'world T>,
+}
+
+impl<'world, T: Resource + Debug> Debug for MutRes<'world, T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MutRes")
+            .field("resource", &self.resource)
+            .finish()
+    }
+}
+
+impl<'world, T: Resource> MutRes<'world, T> {
+    pub fn new(resource: &'world mut T) -> Self {
+        MutRes {
+            resource,
+            _phantom: PhantomData,
+        }
+    }
+}
+
+impl<'world, T: Resource + Clone> MutRes<'world, T> {
+    pub fn into_inner(self) -> T {
+        self.resource.clone()
+    }
+}
+
+impl<T: Resource> Deref for MutRes<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.resource
+    }
+}
+
+impl<T: Resource> DerefMut for MutRes<'_, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.resource
+    }
+}
+
+impl<T: Resource> SystemParam for MutRes<'_, T> {
+    type State = ();
+
+    type Item<'world, 'state> = MutRes<'world, T>;
+
+    fn init_state(_: &mut World) -> Self::State {
+        // No state needed for resources
+    }
+
+    fn get_param<'world, 'state>(
+        _state: &'state Self::State,
+        world: &'world mut World,
+    ) -> Self::Item<'world, 'state> {
+        let resource = world
+            .get_resource_mut::<T>()
+            .unwrap_or_else(|| panic!("Resource {} not found", type_name::<T>()));
+        MutRes::new(resource)
     }
 }

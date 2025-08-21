@@ -77,6 +77,12 @@ impl World {
         self.resources.insert(resource);
     }
     
+    pub fn add_default_resource<T: Resource + Default>(&mut self) -> &mut T {
+        let resource = T::default();
+        self.resources.insert(resource);
+        self.resources.get_mut::<T>().expect("Resource was just inserted")
+    }
+    
     pub fn remove_resource<T: Resource>(&mut self) -> Option<T> {
         self.resources.remove::<T>()
     }

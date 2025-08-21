@@ -18,6 +18,8 @@ pub trait SurfaceProvider {
     fn get_window_handle(&self) -> RawWindowHandle;
 
     fn get_extent(&self) -> (u32, u32);
+
+    fn request_redraw(&self);
 }
 
 pub struct SurfaceProviderResource {
@@ -99,7 +101,7 @@ pub fn create_instance(
         .application_version(app_version)
         .engine_name(engine_name)
         .engine_version(vk::make_api_version(0, 1, 0, 0))
-        .api_version(vk::make_api_version(0, 1, 4, 0));
+        .api_version(vk::make_api_version(0, 1, 3, 0));
 
     let data = unsafe { entry.enumerate_instance_layer_properties()? };
 

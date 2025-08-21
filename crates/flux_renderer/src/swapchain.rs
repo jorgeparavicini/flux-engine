@@ -13,6 +13,7 @@ pub struct Swapchain {
     pub swapchain: vk::SwapchainKHR,
     pub images: Vec<vk::Image>,
     pub image_views: Vec<vk::ImageView>,
+    pub max_frames_in_flight: usize,
 }
 
 impl Resource for Swapchain {}
@@ -113,6 +114,7 @@ pub fn create_swapchain(
         format: surface_format,
         extent,
         image_views,
+        max_frames_in_flight: 2
     });
 
     Ok(())

@@ -1,65 +1,43 @@
+use crate::buffers::{create_index_buffer, create_uniform_buffer, create_vertex_buffer};
+use crate::command_buffer::{create_command_buffer, CommandBuffers};
 use crate::command_pool::{create_command_pools, destroy_command_pools};
-use crate::device::{create_logical_device, create_physical_device, destroy_logical_device};
-use crate::instance::{
-    SurfaceProvider, SurfaceProviderResource, create_instance, destroy_instance,
+use crate::depth_buffers::create_depth_buffers;
+use crate::descriptors::create_descriptors;
+use crate::device::{
+    create_logical_device, create_physical_device, destroy_logical_device, Device,
 };
+use crate::instance::{create_instance, destroy_instance, VulkanInstance};
 use crate::pipeline::{create_pipeline, destroy_pipeline};
 use crate::surface::{create_surface, destroy_surface};
-use crate::swapchain::{create_swapchain, destroy_swapchain};
+use crate::swapchain::{create_swapchain, destroy_swapchain, Swapchain};
+use ash::vk;
+use ash::vk::Handle;
+use flux_ecs::commands::Commands;
 use flux_ecs::plugin::Plugin;
+use flux_ecs::resource::{MutRes, Res, Resource};
 use flux_ecs::schedule::ScheduleLabel;
 use flux_ecs::world::World;
 use raw_window_handle::{
-    HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
+    HasRawDisplayHandle, HasRawWindowHandle,
 };
-use winit::event_loop::EventLoop;
-use crate::buffers::{create_index_buffer, create_uniform_buffer, create_vertex_buffer};
-use crate::command_buffer::create_command_buffer;
-use crate::depth_buffers::create_depth_buffers;
-use crate::descriptors::create_descriptors;
 
+mod buffers;
+mod command_buffer;
 mod command_pool;
+mod depth_buffers;
+mod descriptors;
 mod device;
-mod instance;
+mod image;
+pub mod instance;
 mod pipeline;
 mod surface;
 mod swapchain;
-mod command_buffer;
-mod depth_buffers;
-mod image;
-mod buffers;
-mod descriptors;
 
 pub struct RendererPlugin;
 
-struct WinitSurfaceProvider {
-    window: winit::window::Window,
-}
-
-impl SurfaceProvider for WinitSurfaceProvider {
-    fn get_display_handle(&self) -> RawDisplayHandle {
-        self.window.raw_display_handle().unwrap()
-    }
-
-    fn get_window_handle(&self) -> RawWindowHandle {
-        self.window.raw_window_handle().unwrap()
-    }
-
-    fn get_extent(&self) -> (u32, u32) {
-        let size = self.window.inner_size();
-        (size.width, size.height)
-    }
-}
-
 impl Plugin for RendererPlugin {
     fn init(&self, world: &mut World) {
-        let event_loop = EventLoop::new().unwrap();
-        let window = event_loop.create_window(Default::default()).unwrap();
-        let surface_provider = WinitSurfaceProvider { window };
-        let surface_provider_resource = SurfaceProviderResource {
-            provider: Box::new(surface_provider),
-        };
-        world.add_resource(surface_provider_resource);
+        world.add_default_resource::<FrameData>();
         world.add_system(ScheduleLabel::Initialization, create_instance);
         world.add_system(ScheduleLabel::Initialization, create_surface);
         world.add_system(ScheduleLabel::Initialization, create_physical_device);
@@ -73,6 +51,8 @@ impl Plugin for RendererPlugin {
         world.add_system(ScheduleLabel::Initialization, create_uniform_buffer);
         world.add_system(ScheduleLabel::Initialization, create_descriptors);
         world.add_system(ScheduleLabel::Initialization, create_command_buffer);
+        world.add_system(ScheduleLabel::Initialization, create_sync_objects);
+        world.add_system(ScheduleLabel::Render, render);
 
         world.add_system(ScheduleLabel::Destroy, destroy_command_pools);
         world.add_system(ScheduleLabel::Destroy, destroy_pipeline);
@@ -81,4 +61,135 @@ impl Plugin for RendererPlugin {
         world.add_system(ScheduleLabel::Destroy, destroy_surface);
         world.add_system(ScheduleLabel::Destroy, destroy_instance);
     }
+}
+
+struct SyncObjects {
+    pub image_available_semaphores: Vec<vk::Semaphore>,
+    pub render_finished_semaphores: Vec<vk::Semaphore>,
+    pub in_flight_fences: Vec<vk::Fence>,
+    pub images_in_flight: Vec<vk::Fence>,
+}
+
+impl Resource for SyncObjects {}
+
+fn create_sync_objects(
+    device: Res<Device>,
+    swapchain: Res<Swapchain>,
+    mut commands: Commands,
+) -> Result<(), vk::Result> {
+    let semaphore_info = vk::SemaphoreCreateInfo::default();
+    let fence_info = vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED);
+
+    let mut image_available_semaphores = Vec::with_capacity(swapchain.max_frames_in_flight);
+    let mut in_flight_fences = Vec::with_capacity(swapchain.max_frames_in_flight);
+
+    for _ in 0..swapchain.max_frames_in_flight {
+        image_available_semaphores.push(unsafe { device.create_semaphore(&semaphore_info, None)? });
+        in_flight_fences.push(unsafe { device.create_fence(&fence_info, None)? });
+    }
+
+    let mut render_finished_semaphores = Vec::with_capacity(swapchain.max_frames_in_flight);
+    for _ in 0..swapchain.images.len() {
+        render_finished_semaphores.push(unsafe { device.create_semaphore(&semaphore_info, None)? });
+    }
+
+    let images_in_flight = swapchain.images.iter().map(|_| vk::Fence::null()).collect();
+
+    commands.insert_resource(SyncObjects {
+        image_available_semaphores,
+        render_finished_semaphores,
+        in_flight_fences,
+        images_in_flight,
+    });
+
+    Ok(())
+}
+
+#[derive(Default)]
+struct FrameData {
+    pub frame_index: usize,
+}
+
+impl Resource for FrameData {}
+
+pub fn render(
+    instance: Res<VulkanInstance>,
+    device: Res<Device>,
+    swapchain: Res<Swapchain>,
+    command_buffers_res: Res<CommandBuffers>,
+    mut sync_objects: MutRes<SyncObjects>,
+    mut frame_data: MutRes<FrameData>,
+) -> Result<(), vk::Result> {
+    unsafe {
+        device.wait_for_fences(
+            &[sync_objects.in_flight_fences[frame_data.frame_index]],
+            true,
+            u64::MAX,
+        )?;
+    }
+
+    let swapchain_device = ash::khr::swapchain::Device::new(&instance, &device);
+    let image_available_semaphore = sync_objects.image_available_semaphores[frame_data.frame_index];
+    let next_image_result = unsafe {
+        swapchain_device.acquire_next_image(
+            **swapchain,
+            u64::MAX,
+            image_available_semaphore,
+            vk::Fence::null(),
+        )
+    };
+
+    let image_index = match next_image_result {
+        Ok((image_index, _)) => image_index as usize,
+        Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => return Ok(()), // TODO Recreate swapchain
+        Err(e) => return Err(e),
+    };
+
+    if !sync_objects.images_in_flight[image_index].is_null() {
+        unsafe {
+            device.wait_for_fences(
+                &[sync_objects.images_in_flight[image_index]],
+                true,
+                u64::MAX,
+            )?;
+        }
+    }
+
+    sync_objects.images_in_flight[image_index] =
+        sync_objects.in_flight_fences[frame_data.frame_index];
+
+    let wait_semaphores = &[image_available_semaphore];
+    let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
+    let command_buffers = &[command_buffers_res.command_buffers[image_index]];
+    let signal_semaphores = &[sync_objects.render_finished_semaphores[image_index]];
+    let submit_info = vk::SubmitInfo::default()
+        .wait_semaphores(wait_semaphores)
+        .wait_dst_stage_mask(wait_stages)
+        .command_buffers(command_buffers)
+        .signal_semaphores(signal_semaphores);
+
+    let in_flight_fence = sync_objects.in_flight_fences[frame_data.frame_index];
+    unsafe {
+        device.reset_fences(&[in_flight_fence])?;
+        device.queue_submit(
+            device.graphics_queue,
+            &[submit_info],
+            in_flight_fence,
+        )?;
+    }
+
+    let swapchains = &[swapchain.swapchain];
+    let image_indices = &[image_index as u32];
+    let present_info = vk::PresentInfoKHR::default()
+        .wait_semaphores(signal_semaphores)
+        .swapchains(swapchains)
+        .image_indices(image_indices);
+
+    let result = unsafe { swapchain_device.queue_present(device.present_queue, &present_info) }?;
+
+    // TODO: Recreate swapchain if result is ERROR_OUT_OF_DATE_KHR or SUBOPTIMAL_KHR
+
+    frame_data.frame_index = (frame_data.frame_index + 1) % swapchain.max_frames_in_flight;
+
+    Ok(())
 }
