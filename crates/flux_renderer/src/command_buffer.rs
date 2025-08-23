@@ -1,7 +1,6 @@
 use crate::buffers::{IndexBuffer, VertexBuffer};
 use crate::command_pool::CommandPools;
 use crate::depth_buffers::DepthBuffers;
-use crate::descriptors::Descriptors;
 use crate::device::Device;
 use crate::pipeline::Pipeline;
 use crate::swapchain::Swapchain;
@@ -10,6 +9,7 @@ use flux_ecs::commands::Commands;
 use flux_ecs::resource::{Res, Resource};
 use log::debug;
 use std::ops::Deref;
+use crate::descriptors::Descriptors;
 
 pub struct CommandBuffers {
     pub command_buffers: Vec<vk::CommandBuffer>,
@@ -61,16 +61,13 @@ pub fn create_command_buffer(
             .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE) // We are preparing to write
             .old_layout(vk::ImageLayout::UNDEFINED) // We don't care about the previous layout/contents
             .new_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL) // Layout needed for rendering
-            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
             .image(swapchain.images[i])
-            .subresource_range(vk::ImageSubresourceRange {
-                aspect_mask: vk::ImageAspectFlags::COLOR,
-                base_mip_level: 0,
-                level_count: 1,
-                base_array_layer: 0,
-                layer_count: 1,
-            });
+            .subresource_range(
+                vk::ImageSubresourceRange::default()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .level_count(1)
+                    .layer_count(1),
+            );
 
         unsafe {
             device.cmd_pipeline_barrier(
@@ -144,7 +141,7 @@ pub fn create_command_buffer(
                 &[],
             );
 
-            device.cmd_draw_indexed(*command_buffer, 3, 1, 0, 0, 0);
+            device.cmd_draw(*command_buffer, 3, 1, 0, 0);
 
             device.cmd_end_rendering(*command_buffer);
         }
@@ -154,16 +151,13 @@ pub fn create_command_buffer(
             .dst_access_mask(vk::AccessFlags::empty())
             .old_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
             .new_layout(vk::ImageLayout::PRESENT_SRC_KHR)
-            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
             .image(swapchain.images[i])
-            .subresource_range(vk::ImageSubresourceRange {
-                aspect_mask: vk::ImageAspectFlags::COLOR,
-                base_mip_level: 0,
-                level_count: 1,
-                base_array_layer: 0,
-                layer_count: 1,
-            });
+            .subresource_range(
+                vk::ImageSubresourceRange::default()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .level_count(1)
+                    .layer_count(1),
+            );
 
         unsafe {
             device.cmd_pipeline_barrier(

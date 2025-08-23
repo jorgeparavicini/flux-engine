@@ -2,7 +2,6 @@ use crate::buffers::{create_index_buffer, create_uniform_buffer, create_vertex_b
 use crate::command_buffer::{create_command_buffer, CommandBuffers};
 use crate::command_pool::{create_command_pools, destroy_command_pools};
 use crate::depth_buffers::create_depth_buffers;
-use crate::descriptors::create_descriptors;
 use crate::device::{
     create_logical_device, create_physical_device, destroy_logical_device, Device,
 };
@@ -20,6 +19,7 @@ use flux_ecs::world::World;
 use raw_window_handle::{
     HasRawDisplayHandle, HasRawWindowHandle,
 };
+use crate::descriptors::create_descriptors;
 
 mod buffers;
 mod command_buffer;
@@ -63,7 +63,7 @@ impl Plugin for RendererPlugin {
     }
 }
 
-struct SyncObjects {
+pub struct SyncObjects {
     pub image_available_semaphores: Vec<vk::Semaphore>,
     pub render_finished_semaphores: Vec<vk::Semaphore>,
     pub in_flight_fences: Vec<vk::Fence>,
@@ -106,7 +106,7 @@ fn create_sync_objects(
 }
 
 #[derive(Default)]
-struct FrameData {
+pub struct FrameData {
     pub frame_index: usize,
 }
 

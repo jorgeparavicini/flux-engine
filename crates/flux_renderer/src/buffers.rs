@@ -6,17 +6,14 @@ use crate::swapchain::Swapchain;
 use ash::vk;
 use flux_ecs::commands::Commands;
 use flux_ecs::resource::{Res, Resource};
+use glam::{Mat4, Vec2, Vec3};
 use log::debug;
 use std::ptr::copy_nonoverlapping as memcpy;
-
-type Vec2 = cgmath::Vector2<f32>;
-type Vec3 = cgmath::Vector3<f32>;
-type Mat4 = cgmath::Matrix4<f32>;
 
 const VERTICES: [Vertex; 3] = [
     Vertex {
         pos: Vec3::new(-0.5, -0.5, 0.0),
-        color: Vec3::new(1.0, 0.0, 0.0),
+        color: Vec3::new(1.0, 0.4, 0.0),
         tex_coords: Vec2::new(0.0, 1.0),
     },
     Vertex {
@@ -31,6 +28,7 @@ const VERTICES: [Vertex; 3] = [
     },
 ];
 
+#[repr(C)]
 pub struct Vertex {
     pos: Vec3,
     color: Vec3,
@@ -91,13 +89,7 @@ pub fn create_vertex_buffer(
     let memory =
         unsafe { device.map_memory(staging_buffer_memory, 0, size, vk::MemoryMapFlags::empty())? };
 
-    unsafe {
-        memcpy(
-            VERTICES.as_ptr() as *const u8,
-            memory.cast(),
-            VERTICES.len(),
-        )
-    }
+    unsafe { memcpy(VERTICES.as_ptr(), memory.cast(), VERTICES.len()) }
 
     unsafe { device.unmap_memory(staging_buffer_memory) };
 
@@ -253,15 +245,15 @@ fn copy_buffer(
     dst_buffer: vk::Buffer,
     size: vk::DeviceSize,
 ) -> Result<(), vk::Result> {
-    let command_buffer = unsafe { begin_single_time_commands(device, command_pools.graphics)? };
+    let command_buffer = unsafe { begin_single_time_commands(device, command_pools.transfer)? };
 
     let regions = vk::BufferCopy::default().size(size);
     unsafe { device.cmd_copy_buffer(command_buffer, src_buffer, dst_buffer, &[regions]) };
 
     end_single_time_commands(
         device,
-        device.graphics_queue,
-        command_pools.graphics,
+        device.transfer_queue,
+        command_pools.transfer,
         command_buffer,
     )?;
 
