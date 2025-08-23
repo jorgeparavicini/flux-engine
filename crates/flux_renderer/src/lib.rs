@@ -1,7 +1,7 @@
-use crate::buffers::{create_index_buffer, create_uniform_buffer, create_vertex_buffer};
+use crate::buffers::{create_index_buffer, create_uniform_buffer, create_vertex_buffer, destroy_buffers};
 use crate::command_buffer::{create_command_buffer, CommandBuffers};
 use crate::command_pool::{create_command_pools, destroy_command_pools};
-use crate::depth_buffers::create_depth_buffers;
+use crate::depth_buffers::{create_depth_buffers, destroy_depth_buffers};
 use crate::device::{
     create_logical_device, create_physical_device, destroy_logical_device, Device,
 };
@@ -11,6 +11,7 @@ use crate::surface::{create_surface, destroy_surface};
 use crate::swapchain::{create_swapchain, destroy_swapchain, Swapchain};
 use ash::vk;
 use ash::vk::Handle;
+use log::debug;
 use flux_ecs::commands::Commands;
 use flux_ecs::plugin::Plugin;
 use flux_ecs::resource::{MutRes, Res, Resource};
@@ -19,7 +20,7 @@ use flux_ecs::world::World;
 use raw_window_handle::{
     HasRawDisplayHandle, HasRawWindowHandle,
 };
-use crate::descriptors::create_descriptors;
+use crate::descriptors::{create_descriptors, destroy_descriptors};
 
 mod buffers;
 mod command_buffer;
@@ -52,9 +53,15 @@ impl Plugin for RendererPlugin {
         world.add_system(ScheduleLabel::Initialization, create_descriptors);
         world.add_system(ScheduleLabel::Initialization, create_command_buffer);
         world.add_system(ScheduleLabel::Initialization, create_sync_objects);
+
         world.add_system(ScheduleLabel::Render, render);
 
+        world.add_system(ScheduleLabel::Destroy, wait_device_idle);
+        world.add_system(ScheduleLabel::Destroy, destroy_sync_objects);
+        world.add_system(ScheduleLabel::Destroy, destroy_descriptors);
+        world.add_system(ScheduleLabel::Destroy, destroy_buffers);
         world.add_system(ScheduleLabel::Destroy, destroy_command_pools);
+        world.add_system(ScheduleLabel::Destroy, destroy_depth_buffers);
         world.add_system(ScheduleLabel::Destroy, destroy_pipeline);
         world.add_system(ScheduleLabel::Destroy, destroy_swapchain);
         world.add_system(ScheduleLabel::Destroy, destroy_logical_device);
@@ -192,4 +199,34 @@ pub fn render(
     frame_data.frame_index = (frame_data.frame_index + 1) % swapchain.max_frames_in_flight;
 
     Ok(())
+}
+
+fn wait_device_idle(device: Res<Device>) {
+    unsafe {
+        device.device_wait_idle().expect("Failed to wait device idle");
+    }
+}
+
+fn destroy_sync_objects(device: Res<Device>, sync_objects: Res<SyncObjects>, mut commands: Commands) {
+    debug!("Destroying sync objects");
+
+    for &semaphore in &sync_objects.image_available_semaphores {
+        unsafe {
+            device.destroy_semaphore(semaphore, None);
+        }
+    }
+
+    for &semaphore in &sync_objects.render_finished_semaphores {
+        unsafe {
+            device.destroy_semaphore(semaphore, None);
+        }
+    }
+
+    for &fence in &sync_objects.in_flight_fences {
+        unsafe {
+            device.destroy_fence(fence, None);
+        }
+    }
+
+    commands.remove_resource::<SyncObjects>();
 }

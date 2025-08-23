@@ -5,6 +5,7 @@ use crate::swapchain::Swapchain;
 use ash::vk;
 use flux_ecs::commands::Commands;
 use flux_ecs::resource::{Res, Resource};
+use log::debug;
 
 pub struct Descriptors {
     pub descriptor_pool: vk::DescriptorPool,
@@ -43,7 +44,7 @@ fn create_descriptor_pool(
         .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
         .descriptor_count(swapchain.image_views.len() as u32);
 
-    let pool_sizes = &[ubo_size];
+    let pool_sizes = &[ubo_size, sampler_size];
     let info = vk::DescriptorPoolCreateInfo::default()
         .pool_sizes(pool_sizes)
         .max_sets(swapchain.image_views.len() as u32);
@@ -83,4 +84,19 @@ fn create_descriptor_sets(
     }
 
     Ok(sets)
+}
+
+pub fn destroy_descriptors(
+    device: Res<Device>,
+    descriptors: Res<Descriptors>,
+    mut commands: Commands,
+) -> Result<(), vk::Result> {
+    debug!("Destroying descriptor pool");
+    unsafe {
+        device.destroy_descriptor_pool(descriptors.descriptor_pool, None);
+    }
+
+    commands.remove_resource::<Descriptors>();
+
+    Ok(())
 }

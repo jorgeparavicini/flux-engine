@@ -297,3 +297,24 @@ fn end_single_time_commands(
 
     Ok(())
 }
+
+pub fn destroy_buffers(
+    device: Res<Device>,
+    vertex_buffer: Res<VertexBuffer>,
+    index_buffer: Res<IndexBuffer>,
+    uniform_buffers: Res<UniformBuffers>,
+) {
+    debug!("Destroying buffers");
+
+    unsafe {
+        device.destroy_buffer(vertex_buffer.buffer, None);
+        device.free_memory(vertex_buffer.memory, None);
+        device.destroy_buffer(index_buffer.buffer, None);
+        device.free_memory(index_buffer.memory, None);
+
+        for uniform_buffer in &uniform_buffers.buffers {
+            device.destroy_buffer(uniform_buffer.buffer, None);
+            device.free_memory(uniform_buffer.memory, None);
+        }
+    }
+}

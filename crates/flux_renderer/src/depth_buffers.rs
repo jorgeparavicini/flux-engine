@@ -95,3 +95,19 @@ fn get_supported_format(
         }
     })
 }
+
+pub fn destroy_depth_buffers(
+    device: Res<Device>,
+    depth_buffers: Res<DepthBuffers>,
+    mut commands: Commands,
+) {
+    debug!("Destroying depth buffers");
+
+    unsafe {
+        device.destroy_image_view(depth_buffers.depth_image_view, None);
+        device.destroy_image(depth_buffers.depth_image, None);
+        device.free_memory(depth_buffers.depth_image_memory, None);
+    }
+
+    commands.remove_resource::<DepthBuffers>();
+}
