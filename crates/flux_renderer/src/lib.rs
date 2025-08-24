@@ -1,7 +1,10 @@
-use crate::buffers::{create_index_buffer, create_uniform_buffer, create_vertex_buffer, destroy_buffers};
-use crate::command_buffer::{create_command_buffer, CommandBuffers};
+use crate::buffers::{
+    create_index_buffer, create_uniform_buffer, create_vertex_buffer, destroy_buffers,
+};
+use crate::command_buffer::{create_command_buffer, destroy_command_buffers, CommandBuffers};
 use crate::command_pool::{create_command_pools, destroy_command_pools};
 use crate::depth_buffers::{create_depth_buffers, destroy_depth_buffers};
+use crate::descriptors::{create_descriptors, destroy_descriptors};
 use crate::device::{
     create_logical_device, create_physical_device, destroy_logical_device, Device,
 };
@@ -11,16 +14,13 @@ use crate::surface::{create_surface, destroy_surface};
 use crate::swapchain::{create_swapchain, destroy_swapchain, Swapchain};
 use ash::vk;
 use ash::vk::Handle;
-use log::debug;
 use flux_ecs::commands::Commands;
 use flux_ecs::plugin::Plugin;
 use flux_ecs::resource::{MutRes, Res, Resource};
 use flux_ecs::schedule::ScheduleLabel;
 use flux_ecs::world::World;
-use raw_window_handle::{
-    HasRawDisplayHandle, HasRawWindowHandle,
-};
-use crate::descriptors::{create_descriptors, destroy_descriptors};
+use log::debug;
+use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
 mod buffers;
 mod command_buffer;
@@ -67,6 +67,20 @@ impl Plugin for RendererPlugin {
         world.add_system(ScheduleLabel::Destroy, destroy_logical_device);
         world.add_system(ScheduleLabel::Destroy, destroy_surface);
         world.add_system(ScheduleLabel::Destroy, destroy_instance);
+
+        world.add_system(ScheduleLabel::RecreateSwapchain, wait_for_device_idle);
+        world.add_system(ScheduleLabel::RecreateSwapchain, destroy_descriptors);
+        world.add_system(ScheduleLabel::RecreateSwapchain, destroy_depth_buffers);
+        world.add_system(ScheduleLabel::RecreateSwapchain, destroy_command_buffers);
+        world.add_system(ScheduleLabel::RecreateSwapchain, destroy_command_pools);
+        world.add_system(ScheduleLabel::RecreateSwapchain, destroy_pipeline);
+        world.add_system(ScheduleLabel::RecreateSwapchain, destroy_swapchain);
+        world.add_system(ScheduleLabel::RecreateSwapchain, create_swapchain);
+        world.add_system(ScheduleLabel::RecreateSwapchain, create_pipeline);
+        world.add_system(ScheduleLabel::RecreateSwapchain, create_depth_buffers);
+        world.add_system(ScheduleLabel::RecreateSwapchain, create_command_pools);
+        world.add_system(ScheduleLabel::RecreateSwapchain, create_descriptors);
+        world.add_system(ScheduleLabel::RecreateSwapchain, create_command_buffer);
     }
 }
 
@@ -126,6 +140,7 @@ pub fn render(
     command_buffers_res: Res<CommandBuffers>,
     mut sync_objects: MutRes<SyncObjects>,
     mut frame_data: MutRes<FrameData>,
+    mut commands: Commands,
 ) -> Result<(), vk::Result> {
     unsafe {
         device.wait_for_fences(
@@ -178,11 +193,7 @@ pub fn render(
     let in_flight_fence = sync_objects.in_flight_fences[frame_data.frame_index];
     unsafe {
         device.reset_fences(&[in_flight_fence])?;
-        device.queue_submit(
-            device.graphics_queue,
-            &[submit_info],
-            in_flight_fence,
-        )?;
+        device.queue_submit(device.graphics_queue, &[submit_info], in_flight_fence)?;
     }
 
     let swapchains = &[swapchain.swapchain];
@@ -192,9 +203,16 @@ pub fn render(
         .swapchains(swapchains)
         .image_indices(image_indices);
 
-    let result = unsafe { swapchain_device.queue_present(device.present_queue, &present_info) }?;
+    let result = unsafe { swapchain_device.queue_present(device.present_queue, &present_info) };
 
-    // TODO: Recreate swapchain if result is ERROR_OUT_OF_DATE_KHR or SUBOPTIMAL_KHR
+    let changed = result == Ok(true) || result == Err(vk::Result::ERROR_OUT_OF_DATE_KHR);
+
+    // TODO: Probably should handle explicit resizes here as well
+    if changed {
+        commands.run_schedule_once(ScheduleLabel::RecreateSwapchain);
+    } else if let Err(e) = result {
+        return Err(e);
+    }
 
     frame_data.frame_index = (frame_data.frame_index + 1) % swapchain.max_frames_in_flight;
 
@@ -203,11 +221,17 @@ pub fn render(
 
 fn wait_device_idle(device: Res<Device>) {
     unsafe {
-        device.device_wait_idle().expect("Failed to wait device idle");
+        device
+            .device_wait_idle()
+            .expect("Failed to wait device idle");
     }
 }
 
-fn destroy_sync_objects(device: Res<Device>, sync_objects: Res<SyncObjects>, mut commands: Commands) {
+fn destroy_sync_objects(
+    device: Res<Device>,
+    sync_objects: Res<SyncObjects>,
+    mut commands: Commands,
+) {
     debug!("Destroying sync objects");
 
     for &semaphore in &sync_objects.image_available_semaphores {
@@ -229,4 +253,10 @@ fn destroy_sync_objects(device: Res<Device>, sync_objects: Res<SyncObjects>, mut
     }
 
     commands.remove_resource::<SyncObjects>();
+}
+
+fn wait_for_device_idle(device: Res<Device>) -> Result<(), vk::Result> {
+    unsafe { device.device_wait_idle()? }
+
+    Ok(())
 }

@@ -1,10 +1,14 @@
 use crate::resource::Resource;
 use crate::system::parameter::SystemParam;
+use crate::system::{IntoSystem, System};
 use crate::world::World;
+use log::trace;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
+use crate::schedule::ScheduleLabel;
 
+// TODO: Does this have to be a Box<Self>?
 pub trait Command {
     fn execute(self: Box<Self>, world: &mut World);
 }
@@ -29,6 +33,49 @@ impl<T: Resource> Command for RemoveResource<T> {
     }
 }
 
+pub struct RunSystem {
+    pub system: Box<dyn System>,
+}
+
+// TODO: Could possibly be improved, verify whether we need double boxing (input and output)
+// TODO: Should the From trait be used for something like this?
+impl RunSystem {
+    pub fn from_system<M>(system: impl IntoSystem<M>) -> Self {
+        trace!(
+            "Creating system from marker: {0}",
+            std::any::type_name::<M>()
+        );
+        RunSystem {
+            system: Box::new(IntoSystem::into_system(system)),
+        }
+    }
+    // TODO: Once we rework system storage we should also add an overload that fetches a pre-registered system
+}
+
+impl Command for RunSystem {
+    fn execute(self: Box<Self>, world: &mut World) {
+        trace!("Running system once");
+        world.run_system_once(self.system)
+    }
+}
+
+pub struct RunSchedule {
+    pub schedule_label: ScheduleLabel
+}
+
+impl RunSchedule {
+    pub fn new(schedule_label: ScheduleLabel) -> Self {
+        Self { schedule_label }
+    }
+}
+
+impl Command for RunSchedule {
+    fn execute(self: Box<Self>, world: &mut World) {
+        trace!("Running schedule once");
+        world.run_schedule(&self.schedule_label)
+    }
+}
+
 #[derive(Default)]
 pub struct CommandQueue {
     pub commands: VecDeque<Box<dyn Command>>,
@@ -45,7 +92,7 @@ impl CommandQueue {
         self.commands.push_back(command);
     }
 
-    pub fn drain(&mut self) -> impl Iterator<Item=Box<dyn Command>> + use < '_ > {
+    pub fn drain(&mut self) -> impl Iterator<Item = Box<dyn Command>> + use<'_> {
         self.commands.drain(..)
     }
 
@@ -54,6 +101,7 @@ impl CommandQueue {
     }
 }
 
+// TODO: Verify whether RC is needed here
 pub struct Commands {
     buffer: Rc<RefCell<VecDeque<Box<dyn Command>>>>,
 }
@@ -64,13 +112,29 @@ impl Commands {
     }
 
     pub fn insert_resource<T: Resource>(&mut self, resource: T) {
-        self.buffer.borrow_mut().push_back(Box::new(CreateResource { resource }));
+        self.buffer
+            .borrow_mut()
+            .push_back(Box::new(CreateResource { resource }));
+    }
+
+    pub fn remove_resource<T: Resource>(&mut self) {
+        self.buffer
+            .borrow_mut()
+            .push_back(Box::new(RemoveResource::<T> {
+                _phantom: std::marker::PhantomData,
+            }));
+    }
+
+    pub fn run_system_once<M>(&mut self, into_system: impl IntoSystem<M>) {
+        self.buffer
+            .borrow_mut()
+            .push_back(Box::new(RunSystem::from_system(into_system)))
     }
     
-    pub fn remove_resource<T: Resource>(&mut self) {
-        self.buffer.borrow_mut().push_back(Box::new(RemoveResource::<T> {
-            _phantom: std::marker::PhantomData,
-        }));
+    pub fn run_schedule_once(&mut self, schedule_label: ScheduleLabel) {
+        self.buffer
+            .borrow_mut()
+            .push_back(Box::new(RunSchedule::new(schedule_label)))
     }
 }
 
@@ -88,7 +152,10 @@ impl SystemParam for Commands {
         }
     }
 
-    fn get_param<'world, 'state>(state: &'state Self::State, _: &'world mut World) -> Self::Item<'world, 'state> {
+    fn get_param<'world, 'state>(
+        state: &'state Self::State,
+        _: &'world mut World,
+    ) -> Self::Item<'world, 'state> {
         Commands {
             buffer: Rc::clone(&state.buffer),
         }

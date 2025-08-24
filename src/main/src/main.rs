@@ -1,10 +1,7 @@
-use flux_ecs::resource::Resource;
 use flux_ecs::schedule::ScheduleLabel::{Destroy, Initialization, Render};
 use flux_ecs::world::World;
-use flux_renderer::RendererPlugin;
 use flux_renderer::instance::{SurfaceProvider, SurfaceProviderResource};
-use std::thread::sleep;
-use std::time::Duration;
+use flux_renderer::RendererPlugin;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
 use winit::raw_window_handle::{
@@ -48,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     world.add_resource(surface_provider_resource);
 
     world.add_plugin(RendererPlugin);
-    world.run_system(&Initialization);
+    world.run_schedule(&Initialization);
 
     let mut minimized = false;
     event_loop.run(move |event, elwt| match event {
@@ -58,11 +55,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .request_redraw(),
         Event::WindowEvent { event, .. } => match event {
             WindowEvent::RedrawRequested if !elwt.exiting() && !minimized => {
-                world.run_system(&Render)
+                world.run_schedule(&Render)
             }
             WindowEvent::CloseRequested => {
                 elwt.exit();
-                world.run_system(&Destroy)
+                world.run_schedule(&Destroy)
             }
             _ => {}
         },

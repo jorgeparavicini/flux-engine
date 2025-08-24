@@ -8,6 +8,7 @@ use std::ops::{Deref, DerefMut};
 
 pub trait Resource: 'static {}
 
+#[derive(Default)]
 pub struct Resources {
     // TODO: Use component id, but it can't be called `ComponentId` as its for components and resources
     data: HashMap<TypeId, Box<dyn Any>>,
@@ -45,9 +46,9 @@ impl Resources {
 }
 
 // TODO: This is more related to a query than a resource
+#[derive(Copy, Clone)]
 pub struct Res<'world, T: Resource> {
     resource: &'world T,
-    _phantom: PhantomData<&'world T>,
 }
 
 impl<'world, T: Resource + Debug> Debug for Res<'world, T> {
@@ -62,7 +63,6 @@ impl<'world, T: Resource> Res<'world, T> {
     pub fn new(resource: &'world T) -> Self {
         Res {
             resource,
-            _phantom: PhantomData,
         }
     }
 }
@@ -119,10 +119,8 @@ impl<T: Resource> SystemParam for Option<Res<'_, T>> {
     }
 }
 
-// TODO: Does this even need a phantom data?
 pub struct MutRes<'world, T: Resource> {
     resource: &'world mut T,
-    _phantom: PhantomData<&'world T>,
 }
 
 impl<'world, T: Resource + Debug> Debug for MutRes<'world, T> {
@@ -137,7 +135,6 @@ impl<'world, T: Resource> MutRes<'world, T> {
     pub fn new(resource: &'world mut T) -> Self {
         MutRes {
             resource,
-            _phantom: PhantomData,
         }
     }
 }

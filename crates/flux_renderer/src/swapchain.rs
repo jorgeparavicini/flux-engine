@@ -36,6 +36,11 @@ pub fn create_swapchain(
 ) -> Result<(), vk::Result> {
     debug!("Creating swapchain");
 
+    let surface_loader = khr::surface::Instance::new(&instance.entry, &instance);
+    let capabilities = unsafe {
+        surface_loader.get_physical_device_surface_capabilities(**physical_device, **surface)?
+    };
+
     let surface_format = physical_device
         .formats
         .iter()
@@ -53,12 +58,12 @@ pub fn create_swapchain(
         .find(|mode| *mode == vk::PresentModeKHR::MAILBOX)
         .unwrap_or(vk::PresentModeKHR::FIFO); // The spec requires FIFO to be available
 
-    let extent = if physical_device.capabilities.current_extent.width != u32::MAX {
-        physical_device.capabilities.current_extent
+    let extent = if capabilities.current_extent.width != u32::MAX {
+        capabilities.current_extent
     } else {
         let (width, height) = surface_provider.get_extent();
-        let min_size = physical_device.capabilities.min_image_extent;
-        let max_size = physical_device.capabilities.max_image_extent;
+        let min_size = capabilities.min_image_extent;
+        let max_size = capabilities.max_image_extent;
 
         vk::Extent2D {
             width: width.clamp(min_size.width, max_size.width),
@@ -66,11 +71,9 @@ pub fn create_swapchain(
         }
     };
 
-    let mut image_count = physical_device.capabilities.min_image_count + 1;
-    if physical_device.capabilities.max_image_count > 0
-        && image_count > physical_device.capabilities.max_image_count
-    {
-        image_count = physical_device.capabilities.max_image_count;
+    let mut image_count = capabilities.min_image_count + 1;
+    if capabilities.max_image_count > 0 && image_count > capabilities.max_image_count {
+        image_count = capabilities.max_image_count;
     }
 
     let mut queue_family_indices = vec![];
@@ -93,7 +96,7 @@ pub fn create_swapchain(
         .image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
         .image_sharing_mode(image_sharing_mode)
         .queue_family_indices(&queue_family_indices)
-        .pre_transform(physical_device.capabilities.current_transform)
+        .pre_transform(capabilities.current_transform)
         .composite_alpha(vk::CompositeAlphaFlagsKHR::OPAQUE)
         .present_mode(present_mode)
         .clipped(true)
@@ -114,7 +117,7 @@ pub fn create_swapchain(
         format: surface_format,
         extent,
         image_views,
-        max_frames_in_flight: 2
+        max_frames_in_flight: 2,
     });
 
     Ok(())

@@ -6,7 +6,7 @@ use crate::module::Module;
 use crate::plugin::Plugin;
 use crate::resource::{Resource, Resources};
 use crate::schedule::{ScheduleLabel, Schedules};
-use crate::system::IntoSystem;
+use crate::system::{IntoSystem, System};
 
 pub struct World {
     entity_manager: EntityManager,
@@ -76,13 +76,15 @@ impl World {
     pub fn add_resource<T: Resource>(&mut self, resource: T) {
         self.resources.insert(resource);
     }
-    
+
     pub fn add_default_resource<T: Resource + Default>(&mut self) -> &mut T {
         let resource = T::default();
         self.resources.insert(resource);
-        self.resources.get_mut::<T>().expect("Resource was just inserted")
+        self.resources
+            .get_mut::<T>()
+            .expect("Resource was just inserted")
     }
-    
+
     pub fn remove_resource<T: Resource>(&mut self) -> Option<T> {
         self.resources.remove::<T>()
     }
@@ -91,11 +93,17 @@ impl World {
         self.schedules.add(label, system);
     }
 
-    pub fn run_system(&mut self, label: &ScheduleLabel) {
+    pub fn run_schedule(&mut self, label: &ScheduleLabel) {
         if let Some(mut systems) = self.schedules.take_systems(label) {
             systems.run(self);
             self.schedules.put_systems(label, systems);
         }
+    }
+
+    // TODO: One could also write this without boxing but then we would have to know the system type at compile time for the RunSystem command
+    // Needs some rework and analysis whether this is possible on the IntoSystem
+    pub fn run_system_once(&mut self, mut system: Box<dyn System>) {
+        system.run(self)
     }
 
     pub fn register_module<T: Module>(&mut self) {

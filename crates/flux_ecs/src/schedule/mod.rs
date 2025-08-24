@@ -9,8 +9,10 @@ pub enum ScheduleLabel {
     Main,
     Render,
     Destroy,
+    RecreateSwapchain,
 }
 
+// TODO: This is a mess
 #[derive(Default)]
 pub struct Schedule {
     pub systems: Systems,
@@ -37,9 +39,7 @@ impl Schedules {
     }
 
     pub fn add<M>(&mut self, schedule: ScheduleLabel, system: impl IntoSystem<M>) {
-        let schedules = self.schedule_map
-            .entry(schedule)
-            .or_default();
+        let schedules = self.schedule_map.entry(schedule).or_default();
 
         schedules.systems.add_system(system);
     }
@@ -55,9 +55,9 @@ impl Schedules {
     }
 
     pub fn take_systems(&mut self, schedule: &ScheduleLabel) -> Option<Systems> {
-        self.schedule_map.get_mut(schedule).map(|schedule| {
-            std::mem::take(&mut schedule.systems)
-        })
+        self.schedule_map
+            .get_mut(schedule)
+            .map(|schedule| std::mem::take(&mut schedule.systems))
     }
 
     pub fn put_systems(&mut self, schedule: &ScheduleLabel, systems: Systems) {

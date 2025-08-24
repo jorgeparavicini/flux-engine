@@ -1,6 +1,7 @@
 use crate::buffers::{IndexBuffer, VertexBuffer};
 use crate::command_pool::CommandPools;
 use crate::depth_buffers::DepthBuffers;
+use crate::descriptors::Descriptors;
 use crate::device::Device;
 use crate::pipeline::Pipeline;
 use crate::swapchain::Swapchain;
@@ -9,7 +10,6 @@ use flux_ecs::commands::Commands;
 use flux_ecs::resource::{Res, Resource};
 use log::debug;
 use std::ops::Deref;
-use crate::descriptors::Descriptors;
 
 pub struct CommandBuffers {
     pub command_buffers: Vec<vk::CommandBuffer>,
@@ -176,4 +176,17 @@ pub fn create_command_buffer(
     commands.insert_resource(CommandBuffers { command_buffers });
 
     Ok(())
+}
+
+pub fn destroy_command_buffers(
+    device: Res<Device>,
+    command_pools: Res<CommandPools>,
+    command_buffers: Res<CommandBuffers>,
+    mut commands: Commands,
+) {
+    debug!("Destroying command buffers");
+    unsafe {
+        device.free_command_buffers(command_pools.graphics, &command_buffers.command_buffers);
+    }
+    commands.remove_resource::<CommandBuffers>();
 }

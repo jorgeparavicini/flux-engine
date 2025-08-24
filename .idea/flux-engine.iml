@@ -7,9 +7,9 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/flux_memory/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/flux_memory/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/src/main/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/crates/flux_memory/macros/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/crates/flux_memory/macros/tests" isTestSource="true" />
       <sourceFolder url="file://$MODULE_DIR$/crates/flux_renderer/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/flux_memory/flux_memory_macros/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/flux_memory/flux_memory_macros/tests" isTestSource="true" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

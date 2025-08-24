@@ -285,7 +285,7 @@ fn query_swapchain_support(
 > {
     let surface_loader = khr::surface::Instance::new(entry, instance);
 
-    let capablities = unsafe {
+    let capabilities = unsafe {
         surface_loader
             .get_physical_device_surface_capabilities(physical_device, surface)
             .or(Err(SuitabilityError::SurfaceNotSupported {
@@ -319,7 +319,7 @@ fn query_swapchain_support(
         });
     }
 
-    Ok((capablities, formats, present_modes))
+    Ok((capabilities, formats, present_modes))
 }
 
 #[derive(Debug, Clone, Copy)]
