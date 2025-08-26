@@ -72,7 +72,6 @@ pub struct PhysicalDevice {
     pub physical_device: vk::PhysicalDevice,
     pub indices: QueueFamilyIndices,
     pub properties: vk::PhysicalDeviceProperties,
-    pub capabilities: vk::SurfaceCapabilitiesKHR,
     pub formats: Vec<vk::SurfaceFormatKHR>,
     pub present_modes: Vec<vk::PresentModeKHR>,
     pub name: String,
@@ -185,7 +184,7 @@ fn evaluate_physical_device(
     let indices = QueueFamilyIndices::get(entry, instance, physical_device, surface)?;
     check_required_device_extensions(instance, physical_device, &device_requirements.extensions)?;
     check_required_features(instance, physical_device)?;
-    let (capabilities, formats, present_modes) =
+    let (formats, present_modes) =
         query_swapchain_support(entry, instance, physical_device, surface)?;
 
     let score = get_physical_device_score(&properties, &indices, device_requirements);
@@ -194,7 +193,6 @@ fn evaluate_physical_device(
         physical_device,
         properties,
         indices,
-        capabilities,
         formats,
         present_modes,
         name,
@@ -275,24 +273,8 @@ fn query_swapchain_support(
     instance: &ash::Instance,
     physical_device: vk::PhysicalDevice,
     surface: vk::SurfaceKHR,
-) -> Result<
-    (
-        vk::SurfaceCapabilitiesKHR,
-        Vec<vk::SurfaceFormatKHR>,
-        Vec<vk::PresentModeKHR>,
-    ),
-    SuitabilityError,
-> {
+) -> Result<(Vec<vk::SurfaceFormatKHR>, Vec<vk::PresentModeKHR>), SuitabilityError> {
     let surface_loader = khr::surface::Instance::new(entry, instance);
-
-    let capabilities = unsafe {
-        surface_loader
-            .get_physical_device_surface_capabilities(physical_device, surface)
-            .or(Err(SuitabilityError::SurfaceNotSupported {
-                device: physical_device,
-                surface,
-            }))?
-    };
 
     let formats = unsafe {
         surface_loader
@@ -319,7 +301,7 @@ fn query_swapchain_support(
         });
     }
 
-    Ok((capabilities, formats, present_modes))
+    Ok((formats, present_modes))
 }
 
 #[derive(Debug, Clone, Copy)]

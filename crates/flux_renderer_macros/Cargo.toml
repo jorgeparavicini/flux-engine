@@ -1,0 +1,11 @@
+[package]
+name = "flux_renderer_macros"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+flux_renderer_abstractions = { version = "0.1.0", path = "../flux_renderer_abstractions" }
+syn = { workspace = true, features = ["full"] }
+
+[lib]
+proc-macro = true

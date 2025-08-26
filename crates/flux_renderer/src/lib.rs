@@ -30,6 +30,7 @@ mod descriptors;
 mod device;
 mod image;
 pub mod instance;
+mod mesh;
 mod pipeline;
 mod surface;
 mod swapchain;
