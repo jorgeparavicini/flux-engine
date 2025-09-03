@@ -1,3 +1,6 @@
+use std::fmt::Debug;
+use flux_ecs::component::Component;
+
 // TODO: Not a fan of this naming
 pub enum VertexFormat {
     Float32x2,
@@ -19,7 +22,28 @@ pub trait Vertex {
     fn layout() -> VertexLayout;
 }
 
-pub struct Mesh<V: Vertex> {
+// TODO: Is this static bound necessary? It is required for the Component trait
+pub struct Mesh<V: Vertex + 'static> {
     pub vertices: Vec<V>,
     pub indices: Option<Vec<u32>>,
+}
+
+impl<V: Vertex> Debug for Mesh<V> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Mesh")
+            .field("vertices", &self.vertices.len())
+            .field(
+                "indices",
+                &self.indices.as_ref().map_or(0, |indices| indices.len()),
+            )
+            .finish()
+    }
+}
+
+impl<V: Vertex + 'static> Component for Mesh<V> {}
+
+impl<V: Vertex> Mesh<V> {
+    pub fn size() -> usize {
+        size_of::<V>()
+    }
 }

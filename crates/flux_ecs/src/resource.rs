@@ -1,9 +1,8 @@
 use crate::system::parameter::SystemParam;
 use crate::world::World;
-use std::any::{Any, TypeId, type_name};
+use std::any::{type_name, Any, TypeId};
 use std::collections::HashMap;
 use std::fmt::Debug;
-use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
 pub trait Resource: 'static {}

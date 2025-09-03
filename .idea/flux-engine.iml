@@ -10,6 +10,8 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/flux_renderer/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/flux_memory/flux_memory_macros/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/flux_memory/flux_memory_macros/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/flux_renderer_abstractions/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/flux_renderer_macros/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />
