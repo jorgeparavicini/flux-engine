@@ -1,24 +1,28 @@
 use crate::buffers::{
-    create_index_buffer, create_uniform_buffer, create_vertex_buffer, destroy_buffers,
+    create_index_buffer, create_uniform_buffer, create_vertex_buffer, destroy_buffers, IndexBuffer,
+    VertexBuffer,
 };
 use crate::command_buffer::{create_command_buffer, destroy_command_buffers, CommandBuffers};
 use crate::command_pool::{create_command_pools, destroy_command_pools};
-use crate::depth_buffers::{create_depth_buffers, destroy_depth_buffers};
-use crate::descriptors::{create_descriptors, destroy_descriptors};
+use crate::depth_buffers::{create_depth_buffers, destroy_depth_buffers, DepthBuffers};
+use crate::descriptors::{create_descriptors, destroy_descriptors, Descriptors};
 use crate::device::{
     create_logical_device, create_physical_device, destroy_logical_device, Device,
 };
 use crate::instance::{create_instance, destroy_instance, VulkanInstance};
-use crate::pipeline::{create_pipeline, destroy_pipeline};
+use crate::mesh::{create_buffers, CoolVertex, VulkanMesh};
+use crate::pipeline::{create_pipeline, destroy_pipeline, Pipeline};
 use crate::surface::{create_surface, destroy_surface};
 use crate::swapchain::{create_swapchain, destroy_swapchain, Swapchain};
 use ash::vk;
-use ash::vk::Handle;
+use ash::vk::{Handle, IndexType};
 use flux_ecs::commands::Commands;
 use flux_ecs::plugin::Plugin;
+use flux_ecs::query::Query;
 use flux_ecs::resource::{MutRes, Res, Resource};
 use flux_ecs::schedule::ScheduleLabel;
 use flux_ecs::world::World;
+use flux_renderer_abstractions::mesh::Mesh;
 use log::debug;
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
@@ -39,6 +43,21 @@ pub struct RendererPlugin;
 
 impl Plugin for RendererPlugin {
     fn init(&self, world: &mut World) {
+        let mesh = Mesh {
+            vertices: vec![CoolVertex {
+                position: [0.0, -0.5, 0.0],
+                color: [1.0, 1.0, 1.0],
+            }, CoolVertex {
+                position: [0.5, 0.5, 0.0],
+                color: [1.0, 1.0, 1.0],
+            }, CoolVertex {
+                position: [-0.5, 0.5, 0.0],
+                color: [1.0, 1.0, 1.0],
+            }],
+            indices: Some(vec![1, 0, 2]),
+        };
+        world.spawn(mesh);
+
         world.add_default_resource::<FrameData>();
         world.add_system(ScheduleLabel::Initialization, create_instance);
         world.add_system(ScheduleLabel::Initialization, create_surface);
@@ -54,6 +73,8 @@ impl Plugin for RendererPlugin {
         world.add_system(ScheduleLabel::Initialization, create_descriptors);
         world.add_system(ScheduleLabel::Initialization, create_command_buffer);
         world.add_system(ScheduleLabel::Initialization, create_sync_objects);
+
+        world.add_system(ScheduleLabel::Initialization, create_buffers);
 
         world.add_system(ScheduleLabel::Render, render);
 
@@ -139,6 +160,10 @@ pub fn render(
     device: Res<Device>,
     swapchain: Res<Swapchain>,
     command_buffers_res: Res<CommandBuffers>,
+    depth_buffers: Res<DepthBuffers>,
+    pipeline: Res<Pipeline>,
+    meshes: Query<&VulkanMesh>,
+    descriptors: Res<Descriptors>,
     mut sync_objects: MutRes<SyncObjects>,
     mut frame_data: MutRes<FrameData>,
     mut commands: Commands,
@@ -180,6 +205,19 @@ pub fn render(
 
     sync_objects.images_in_flight[image_index] =
         sync_objects.in_flight_fences[frame_data.frame_index];
+
+    let command_buffer = command_buffers_res.command_buffers[image_index];
+
+    record_command_buffer(
+        &device,
+        &command_buffer,
+        &swapchain,
+        image_index,
+        &depth_buffers,
+        &pipeline,
+        meshes,
+        descriptors,
+    )?;
 
     let wait_semaphores = &[image_available_semaphore];
     let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
@@ -260,4 +298,141 @@ fn wait_for_device_idle(device: Res<Device>) -> Result<(), vk::Result> {
     unsafe { device.device_wait_idle()? }
 
     Ok(())
+}
+
+fn record_command_buffer(
+    device: &Res<Device>,
+    command_buffer: &vk::CommandBuffer,
+    swapchain: &Res<Swapchain>,
+    image_index: usize,
+    depth_buffers: &Res<DepthBuffers>,
+    pipeline: &Res<Pipeline>,
+    meshes: Query<&VulkanMesh>,
+    descriptors: Res<Descriptors>,
+) -> Result<(), vk::Result> {
+    unsafe {
+        let inheritance = vk::CommandBufferInheritanceInfo::default();
+
+        let info = vk::CommandBufferBeginInfo::default()
+            .flags(vk::CommandBufferUsageFlags::empty())
+            .inheritance_info(&inheritance);
+
+        device.begin_command_buffer(*command_buffer, &info)?;
+
+        let image_barrier_to_render = vk::ImageMemoryBarrier::default()
+            .src_access_mask(vk::AccessFlags::empty()) // No need to wait for previous operations
+            .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE) // We are preparing to write
+            .old_layout(vk::ImageLayout::UNDEFINED) // We don't care about the previous layout/contents
+            .new_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL) // Layout needed for rendering
+            .image(swapchain.images[image_index])
+            .subresource_range(
+                vk::ImageSubresourceRange::default()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .level_count(1)
+                    .layer_count(1),
+            );
+
+        unsafe {
+            device.cmd_pipeline_barrier(
+                *command_buffer,
+                vk::PipelineStageFlags::TOP_OF_PIPE, // Source stage
+                vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT, // Destination stage
+                vk::DependencyFlags::empty(),
+                &[],
+                &[],
+                &[image_barrier_to_render],
+            );
+        }
+
+        let render_area = vk::Rect2D::default()
+            .offset(vk::Offset2D::default())
+            .extent(swapchain.extent);
+
+        let color_clear_value = vk::ClearValue {
+            color: vk::ClearColorValue {
+                float32: [0.0, 0.0, 0.0, 1.0],
+            },
+        };
+
+        let depth_clear_value = vk::ClearValue {
+            depth_stencil: vk::ClearDepthStencilValue {
+                depth: 1.0,
+                stencil: 0,
+            },
+        };
+
+        // TODO: Compare values with framebuffer attachments
+        let color_attachment_info = vk::RenderingAttachmentInfo::default()
+            .image_view(swapchain.image_views[image_index])
+            .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            .load_op(vk::AttachmentLoadOp::CLEAR)
+            .store_op(vk::AttachmentStoreOp::STORE)
+            .clear_value(color_clear_value);
+
+        let depth_attachment_info = vk::RenderingAttachmentInfo::default()
+            .image_view(depth_buffers.depth_image_view)
+            .image_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+            .load_op(vk::AttachmentLoadOp::CLEAR)
+            .store_op(vk::AttachmentStoreOp::STORE)
+            .clear_value(depth_clear_value);
+
+        let color_attachments = &[color_attachment_info];
+        let rendering_info = vk::RenderingInfo::default()
+            .render_area(render_area)
+            .layer_count(1)
+            .color_attachments(color_attachments)
+            .depth_attachment(&depth_attachment_info);
+
+        device.cmd_begin_rendering(*command_buffer, &rendering_info);
+        device.cmd_bind_pipeline(
+            *command_buffer,
+            vk::PipelineBindPoint::GRAPHICS,
+            ***pipeline,
+        );
+
+        device.cmd_bind_descriptor_sets(
+            *command_buffer,
+            vk::PipelineBindPoint::GRAPHICS,
+            pipeline.pipeline_layout,
+            0,
+            &[descriptors.descriptor_sets[image_index]],
+            &[],
+        );
+
+        for mesh in meshes {
+            device.cmd_bind_vertex_buffers(*command_buffer, 0, &[mesh.vertex_buffer], &[0]);
+            device.cmd_bind_index_buffer(*command_buffer, mesh.index_buffer, 0, IndexType::UINT32);
+
+            device.cmd_draw(*command_buffer, mesh.num_indices, 1, 0, 0);
+        }
+
+        device.cmd_end_rendering(*command_buffer);
+
+        let image_barrier_to_present = vk::ImageMemoryBarrier::default()
+            .src_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
+            .dst_access_mask(vk::AccessFlags::empty())
+            .old_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            .new_layout(vk::ImageLayout::PRESENT_SRC_KHR)
+            .image(swapchain.images[image_index])
+            .subresource_range(
+                vk::ImageSubresourceRange::default()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .level_count(1)
+                    .layer_count(1),
+            );
+
+        device.cmd_pipeline_barrier(
+            *command_buffer,
+            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+            vk::PipelineStageFlags::BOTTOM_OF_PIPE,
+            vk::DependencyFlags::empty(),
+            &[],
+            &[],
+            &[image_barrier_to_present],
+        );
+
+        device.end_command_buffer(*command_buffer)?;
+
+        Ok(())
+    }
 }

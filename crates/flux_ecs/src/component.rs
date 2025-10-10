@@ -14,7 +14,7 @@ pub struct ComponentInfo {
     pub type_id: TypeId,
     pub layout: Layout,
     pub name: &'static str,
-    // TODO: Add custom drop functions if needed
+    pub drop_fn: unsafe fn(*mut u8),
 }
 
 pub trait ComponentBundle {
@@ -24,15 +24,15 @@ pub trait ComponentBundle {
 }
 
 macro_rules! impl_component_bundle_for_tuple {
-    ($($T:ident),+) => {
+    ($($T:ident),*) => {
         #[allow(non_snake_case)]
-        impl<$($T: Component),+> ComponentBundle for ($($T,)+) {
+        impl<$($T: Component),+> ComponentBundle for ($($T),*) {
             fn register_components(registry: &mut ComponentRegistry) -> Vec<ComponentId> {
-                vec![$(registry.register::<$T>()),+]
+                vec![$(registry.register::<$T>()),*]
             }
 
             unsafe fn get_component_painters(&self) -> Vec<*const u8> {
-                let ($($T,)+) = self;
+                let ($($T),*) = self;
 
                 vec![$($T as *const $T as *const u8),+]
             }
@@ -59,6 +59,11 @@ impl ComponentRegistry {
                 type_id,
                 layout: Layout::new::<T>(),
                 name: std::any::type_name::<T>(),
+                drop_fn: |ptr| {
+                    unsafe {
+                        std::ptr::drop_in_place(ptr as *mut T);
+                    }
+                },
             };
 
             self.infos.push(info);

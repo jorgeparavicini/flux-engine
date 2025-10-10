@@ -1,4 +1,4 @@
-use crate::component::{ComponentId, ComponentRegistry};
+use crate::component::{ComponentId, ComponentInfo, ComponentRegistry};
 use crate::entity::Entity;
 use std::alloc::Layout;
 use std::collections::HashMap;
@@ -10,13 +10,15 @@ pub struct ArchetypeId(pub usize);
 pub struct Column {
     data: Vec<u8>,
     layout: Layout,
+    drop_fn: unsafe fn(*mut u8),
 }
 
 impl Column {
-    pub fn new(layout: Layout) -> Self {
+    pub fn new(component_info: &ComponentInfo) -> Self {
         Self {
             data: Vec::new(),
-            layout,
+            layout: component_info.layout,
+            drop_fn: component_info.drop_fn,
         }
     }
 
@@ -71,6 +73,24 @@ impl Column {
     pub fn get_mut_ptr(&self, row: usize) -> *mut u8 {
         self.get_ptr(row) as *mut u8
     }
+
+    pub fn clear(&mut self) {
+        if self.layout.size() > 0 {
+            let component_size = self.layout.size();
+            for component_bytes in self.data.chunks_mut(component_size) {
+                let component_ptr = component_bytes.as_mut_ptr();
+                unsafe {
+                    (self.drop_fn)(component_ptr);
+                }
+            }
+        }
+    }
+}
+
+impl Drop for Column {
+    fn drop(&mut self) {
+        self.clear()
+    }
 }
 
 pub struct Archetype {
@@ -124,7 +144,7 @@ impl Archetype {
                 let info = registry
                     .get_info(*id)
                     .expect("Component must be registered before being added to an archetype");
-                Column::new(info.layout)
+                Column::new(info)
             });
 
             unsafe {

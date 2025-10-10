@@ -1,4 +1,6 @@
+use crate::component::ComponentBundle;
 use crate::resource::Resource;
+use crate::schedule::ScheduleLabel;
 use crate::system::parameter::SystemParam;
 use crate::system::{IntoSystem, System};
 use crate::world::World;
@@ -6,7 +8,6 @@ use log::trace;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::rc::Rc;
-use crate::schedule::ScheduleLabel;
 
 // TODO: Does this have to be a Box<Self>?
 pub trait Command {
@@ -60,7 +61,7 @@ impl Command for RunSystem {
 }
 
 pub struct RunSchedule {
-    pub schedule_label: ScheduleLabel
+    pub schedule_label: ScheduleLabel,
 }
 
 impl RunSchedule {
@@ -73,6 +74,16 @@ impl Command for RunSchedule {
     fn execute(self: Box<Self>, world: &mut World) {
         trace!("Running schedule once");
         world.run_schedule(&self.schedule_label)
+    }
+}
+
+pub struct SpawnEntity<C: ComponentBundle> {
+    pub components: C,
+}
+
+impl<C: ComponentBundle> Command for SpawnEntity<C> {
+    fn execute(self: Box<Self>, world: &mut World) {
+        world.spawn(self.components);
     }
 }
 
@@ -130,11 +141,17 @@ impl Commands {
             .borrow_mut()
             .push_back(Box::new(RunSystem::from_system(into_system)))
     }
-    
+
     pub fn run_schedule_once(&mut self, schedule_label: ScheduleLabel) {
         self.buffer
             .borrow_mut()
             .push_back(Box::new(RunSchedule::new(schedule_label)))
+    }
+    
+    pub fn spawn<C: ComponentBundle + 'static>(&mut self, components: C) {
+        self.buffer
+            .borrow_mut()
+            .push_back(Box::new(SpawnEntity { components }))
     }
 }
 
