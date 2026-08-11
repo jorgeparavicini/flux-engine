@@ -1,0 +1,7 @@
+[package]
+name = "flux_renderer_abstractions"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+flux_ecs = { version = "0.1.0", path = "../flux_ecs" }

@@ -207,7 +207,7 @@ pub fn create_uniform_buffer(
     Ok(())
 }
 
-fn create_buffer(
+pub fn create_buffer(
     instance: &VulkanInstance,
     physical_device: &PhysicalDevice,
     device: &Device,
@@ -238,7 +238,7 @@ fn create_buffer(
     Ok((buffer, buffer_memory))
 }
 
-fn copy_buffer(
+pub fn copy_buffer(
     device: &Device,
     command_pools: &CommandPools,
     src_buffer: vk::Buffer,

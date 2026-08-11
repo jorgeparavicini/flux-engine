@@ -54,7 +54,7 @@ pub fn create_pipeline(
 
     let vertex_binding_descriptions = [vk::VertexInputBindingDescription::default()
         .binding(0)
-        .stride(size_of::<Vertex>() as u32)
+        .stride(size_of::<[f32; 6]>() as u32)
         .input_rate(vk::VertexInputRate::VERTEX)];
 
     let vertex_attribute_descriptions = [
@@ -70,12 +70,6 @@ pub fn create_pipeline(
             .location(1)
             .format(vk::Format::R32G32B32_SFLOAT)
             .offset(size_of::<[f32; 3]>() as u32),
-        // Texture coordinates attribute
-        vk::VertexInputAttributeDescription::default()
-            .binding(0)
-            .location(2)
-            .format(vk::Format::R32G32_SFLOAT)
-            .offset((size_of::<[f32; 3]>() + size_of::<[f32; 3]>()) as u32),
     ];
 
     let vertex_input_info = vk::PipelineVertexInputStateCreateInfo::default()

@@ -1,3 +1,4 @@
+use std::mem::ManuallyDrop;
 use crate::archetypes::Archetypes;
 use crate::commands::{Command, CommandQueue};
 use crate::component::{ComponentBundle, ComponentRegistry};
@@ -48,6 +49,8 @@ impl World {
             .archetypes
             .get_mut(archetype_id)
             .expect("Archetype was not found for the given bundle");
+        
+        let bundle = ManuallyDrop::new(bundle);
 
         let pointers = unsafe { bundle.get_component_painters() };
 

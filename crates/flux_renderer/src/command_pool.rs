@@ -15,6 +15,7 @@ pub fn create_command_pools(device: Res<Device>, mut commands: Commands) -> Resu
     debug!("Creating command pools");
 
     let info = vk::CommandPoolCreateInfo::default()
+        .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
         .queue_family_index(device.graphics_queue_index);
 
     let graphics_pool = unsafe {
