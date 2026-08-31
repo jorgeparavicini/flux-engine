@@ -1,0 +1,23 @@
+[package]
+name = "flux_ecs2"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+reference = []
+
+[dependencies]
+flux_ecs2_macros = { path = "./macros" }
+
+[dev-dependencies]
+proptest = { workspace = true }
+criterion = { workspace = true }
+trybuild = { workspace = true }
+flux_ecs2 = { path = ".", features = ["reference"] }
+
+[lints]
+workspace = true
+
+[[bench]]
+name = "baseline"
+harness = false

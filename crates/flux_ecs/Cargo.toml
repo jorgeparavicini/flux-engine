@@ -6,3 +6,6 @@ edition = "2024"
 [dependencies]
 variadics_please = "1.1.0"
 log = "0.4.27"
+
+[lints]
+workspace = true

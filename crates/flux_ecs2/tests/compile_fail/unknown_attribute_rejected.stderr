@@ -1,0 +1,5 @@
+error: unknown `component` attribute; expected `non_send`
+ --> tests/compile_fail/unknown_attribute_rejected.rs:6:13
+  |
+6 | #[component(nonsend)]
+  |             ^^^^^^^

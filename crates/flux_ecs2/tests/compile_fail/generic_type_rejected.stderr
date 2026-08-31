@@ -1,0 +1,5 @@
+error: #[derive(Component)] does not support generic types: the component key is derived from the type name, so every instantiation would share one key
+ --> tests/compile_fail/generic_type_rejected.rs:7:15
+  |
+7 | struct Wrapper<T>(T);
+  |               ^^^

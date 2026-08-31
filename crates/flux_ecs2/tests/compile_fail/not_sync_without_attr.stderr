@@ -1,0 +1,18 @@
+error[E0277]: `Counter` is not `Send + Sync`, so it cannot be a component
+ --> tests/compile_fail/not_sync_without_attr.rs:7:8
+  |
+7 | struct Counter(Cell<u32>);
+  |        ^^^^^^^ unsatisfied trait bound
+  |
+help: the trait `ThreadSafeComponent` is not implemented for `Counter`
+ --> tests/compile_fail/not_sync_without_attr.rs:7:1
+  |
+7 | struct Counter(Cell<u32>);
+  | ^^^^^^^^^^^^^^
+  = note: add `#[component(non_send)]` to pin it to the main thread
+note: required by a bound in `assert_send_sync`
+ --> tests/compile_fail/not_sync_without_attr.rs:6:10
+  |
+6 | #[derive(Component)]
+  |          ^^^^^^^^^ required by this bound in `assert_send_sync`
+  = note: this error originates in the derive macro `Component` (in Nightly builds, run with -Z macro-backtrace for more info)

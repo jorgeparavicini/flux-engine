@@ -1,0 +1,18 @@
+error[E0277]: `Handle` is not `Send + Sync`, so it cannot be a component
+ --> tests/compile_fail/not_send_without_attr.rs:8:8
+  |
+8 | struct Handle(Rc<u8>);
+  |        ^^^^^^ unsatisfied trait bound
+  |
+help: the trait `ThreadSafeComponent` is not implemented for `Handle`
+ --> tests/compile_fail/not_send_without_attr.rs:8:1
+  |
+8 | struct Handle(Rc<u8>);
+  | ^^^^^^^^^^^^^
+  = note: add `#[component(non_send)]` to pin it to the main thread
+note: required by a bound in `assert_send_sync`
+ --> tests/compile_fail/not_send_without_attr.rs:7:10
+  |
+7 | #[derive(Component)]
+  |          ^^^^^^^^^ required by this bound in `assert_send_sync`
+  = note: this error originates in the derive macro `Component` (in Nightly builds, run with -Z macro-backtrace for more info)

@@ -1,10 +1,16 @@
 [workspace]
-members = ["crates/flux_ecs", "crates/flux_memory/flux_memory_macros", "crates/flux_memory", "src/main", "crates/flux_renderer", "crates/flux_renderer_abstractions", "crates/flux_renderer_macros"]
+members = ["crates/flux_ecs", "crates/flux_ecs2", "crates/flux_ecs2/macros", "crates/flux_memory/flux_memory_macros", "crates/flux_memory", "src/main", "crates/flux_renderer", "crates/flux_renderer_abstractions", "crates/flux_renderer_macros"]
 resolver = "2"
 
 [workspace.dependencies]
-anyhow = "1.0.94"
-log = "0.4.14"
-syn = "2.0.90"
-quote = "1.0.37"
-proc-macro2 = "1.0.92"
+anyhow = "1.0.104"
+log = "0.4.34"
+syn = "3.0.4"
+quote = "1.0.47"
+proc-macro2 = "1.0.107"
+criterion = "0.8.2"
+proptest = "1.11.0"
+trybuild = "1.0"
+
+[workspace.lints.clippy]
+mod_module_files = "deny"
