@@ -1,5 +1,6 @@
 #![feature(const_trait_impl, const_cmp)]
 mod entity;
+mod registry;
 mod storage;
 mod component;
 #[cfg(any(test, feature = "reference"))]
