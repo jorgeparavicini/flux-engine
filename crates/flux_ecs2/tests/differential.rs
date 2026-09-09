@@ -2,8 +2,7 @@
 //!
 //! Random op sequences run against both sides; observable state must agree
 //! after every op. Ops address entities by index into the log of every entity
-//! ever created, so stale handles are exercised constantly. The op set grows
-//! with the crate: entity ops now, storage ops in Phase 1, queries in Phase 2.
+//! ever created, so stale handles are exercised constantly.
 
 use flux_ecs2::Entities;
 use flux_ecs2::reference::RefWorld;
@@ -23,7 +22,6 @@ fn op_strategy() -> impl Strategy<Value = Op> {
 }
 
 /// Applies one op to both worlds and asserts they agree on the result.
-/// `real` is the fast side (just `Entities` until Phase 1 lands a `World`).
 struct Driver {
     real: Entities,
     reference: RefWorld,
@@ -80,7 +78,7 @@ proptest! {
     }
 }
 
-/// Deterministic long-run variant (Phase 0 exit criterion: 10⁵ ops).
+/// Deterministic long-run variant (10⁵ ops).
 /// Uses a fixed xorshift stream so failures reproduce exactly; runs a reduced
 /// count under miri, where full agreement checks would take hours.
 #[test]
