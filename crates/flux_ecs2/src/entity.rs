@@ -13,9 +13,14 @@ impl Entity {
 }
 
 pub(crate) struct EntitySlot {
+    /// Odd while the slot is alive, even while dead; compared against the
+    /// handle's generation to detect staleness.
     pub generation: NonZeroU32,
+    /// Chunk holding this entity's row.
     pub chunk: u32,
+    /// Row within the chunk.
     pub row: u16,
+    /// Reserved.
     pub flags: u16,
 }
 
@@ -86,6 +91,7 @@ impl Entities {
             .filter(|slot| slot.generation == entity.generation)
     }
     
+    /// Number of live entities.
     pub(crate) fn live_count(&self) -> usize {
         self.slots.len() - self.free.len()
     }

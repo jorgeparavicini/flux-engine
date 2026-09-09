@@ -50,15 +50,27 @@ impl std::fmt::Debug for ComponentKey {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+/// How a component's values are stored.
 pub enum StorageClass {
+    /// Dense per-archetype columns; the default, fastest to iterate.
     Chunked,
+    /// Reserved for components on a small, rapidly changing set of entities.
     SparseSet,
+    /// Zero-sized marker: present in the archetype, occupies no memory.
     Tag,
 }
 
+/// A type that can be attached to an entity.
+///
+/// Implement with `#[derive(Component)]`. An entity has at most one value of
+/// each component type.
 pub trait Component: 'static {
+    /// This type's stable identity; see [`ComponentKey`].
     const KEY: ComponentKey;
+    /// How values of this type are stored.
     const STORAGE: StorageClass = StorageClass::Chunked;
+    /// Whether this type must stay on the thread that created it.
+    /// Set by `#[component(non_send)]`.
     const NON_SEND: bool = false;
 }
 
@@ -66,6 +78,9 @@ pub trait Component: 'static {
     message = "`{Self}` is not `Send + Sync`, so it cannot be a component",
     note = "add `#[component(non_send)]` to pin it to the main thread"
 )]
+/// Marker satisfied by every `Send + Sync` type; asserted by
+/// `#[derive(Component)]` unless the type opts out with
+/// `#[component(non_send)]`.
 pub trait ThreadSafeComponent: Send + Sync {}
 
 #[diagnostic::do_not_recommend]

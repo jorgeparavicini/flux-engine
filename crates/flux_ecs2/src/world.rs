@@ -5,6 +5,19 @@ use crate::storage::chunks::{ChunkId, Chunks};
 use crate::storage::ops;
 use crate::{Bundle, Component, Entities, Entity};
 
+/// A collection of entities and their components.
+///
+/// ```
+/// use flux_ecs2::{Component, World};
+///
+/// #[derive(Component, Debug, PartialEq)]
+/// struct Health(u32);
+///
+/// let mut world = World::new();
+/// let entity = world.spawn(Health(100));
+/// world.insert(entity, Health(50)); // replaces
+/// assert_eq!(world.remove::<Health>(entity), Some(Health(50)));
+/// ```
 #[derive(Default)]
 pub struct World {
     entities: Entities,
@@ -15,6 +28,7 @@ pub struct World {
 }
 
 impl World {
+    /// Creates an empty world.
     pub fn new() -> Self {
         Self::default()
     }
@@ -96,6 +110,7 @@ impl World {
         self.entities.live_count()
     }
 
+    /// Whether the world has no live entities.
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }

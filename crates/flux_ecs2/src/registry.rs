@@ -1,6 +1,11 @@
 use crate::{Component, ComponentKey, StorageClass};
 use std::collections::HashMap;
 
+/// Dense per-world index of a registered component type.
+///
+/// Assigned in registration order; only meaningful within the world whose
+/// registry produced it. For a world-independent identity use
+/// [`ComponentKey`].
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ComponentId(pub(crate) u32);
 
@@ -16,6 +21,7 @@ pub(crate) struct ComponentInfo {
     type_id: std::any::TypeId,
 }
 
+/// Per-world registry mapping component types to ids and layout metadata.
 #[derive(Default)]
 pub struct Registry {
     infos: Vec<ComponentInfo>,
@@ -27,6 +33,12 @@ impl Registry {
         Self::default()
     }
 
+    /// Returns `T`'s id, registering it on first sight.
+    ///
+    /// # Panics
+    ///
+    /// If `T` is a `Tag` component with a nonzero size, or (in debug builds)
+    /// if two distinct types share a [`ComponentKey`].
     pub fn register<T: Component>(&mut self) -> ComponentId {
         if let Some(&id) = self.by_key.get(&T::KEY) {
             #[cfg(debug_assertions)]

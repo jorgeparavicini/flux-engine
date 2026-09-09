@@ -6,6 +6,10 @@ pub const CHUNK_ALIGN: usize = 64;
 
 
 #[derive(Default)]
+/// Pool of uniform chunk-sized memory blocks with free-list reuse.
+///
+/// `live()` and `peak()` account for every block handed out and not yet
+/// returned; a `ChunkAlloc` dropped with live blocks panics in debug builds.
 pub struct ChunkAlloc {
     free: Vec<NonNull<u8>>,
     live: usize,
@@ -22,6 +26,7 @@ impl ChunkAlloc {
         Self::default()
     }
 
+    /// Hands out a [`CHUNK_SIZE`] block aligned to [`CHUNK_ALIGN`].
     pub fn alloc(&mut self) -> NonNull<u8> {
         self.live += 1;
         self.peak = self.live.max(self.peak);
@@ -31,6 +36,12 @@ impl ChunkAlloc {
         })
     }
 
+    /// Returns a block to the pool.
+    ///
+    /// # Safety
+    ///
+    /// `chunk` came from this allocator's [`alloc`](Self::alloc) and has not
+    /// been deallocated since.
     pub unsafe fn dealloc(&mut self, chunk: NonNull<u8>) {
         debug_assert!(!self.free.contains(&chunk), "double free");
         debug_assert!(self.live > 0, "freeing empty chunk");
@@ -39,10 +50,12 @@ impl ChunkAlloc {
         self.live -= 1;
     }
 
+    /// Blocks currently handed out.
     pub fn live(&self) -> usize {
         self.live
     }
 
+    /// Highest `live()` ever observed.
     pub fn peak(&self) -> usize {
         self.peak
     }

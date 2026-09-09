@@ -4,9 +4,13 @@ use crate::registry::Registry;
 
 /// A set of component values spawned together.
 ///
+/// Implemented for every [`Component`] and for tuples of up to eight
+/// components, including `()` for an entity with none. Field order is
+/// irrelevant: `(A, B)` and `(B, A)` spawn identical entities.
+///
 /// # Safety
-    ///
-    /// Implementors guarantee: `ids` and `write` must agree — `write` calls
+///
+/// Implementors guarantee: `ids` and `write` must agree — `write` calls
 /// `put` exactly once per component, in the same order as `ids`, with a
 /// pointer valid for reading that component's type, and must not use the
 /// values afterwards (ownership transfers through `put`).

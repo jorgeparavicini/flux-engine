@@ -2,6 +2,16 @@ use proc_macro::TokenStream;
 use quote::quote;
 use syn::{DeriveInput, parse_macro_input};
 
+/// Derives `Component`, giving the type a stable identity derived from its
+/// module path and name.
+///
+/// The type must be `Send + Sync` unless it opts out:
+///
+/// - `#[component(non_send)]` — the component is confined to the thread that
+///   created it (for types like window or GPU handles).
+///
+/// Generic types are not supported: every instantiation would share one
+/// identity.
 #[proc_macro_derive(Component, attributes(component))]
 pub fn derive_component(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);

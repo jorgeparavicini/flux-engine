@@ -1,8 +1,17 @@
+//! A naive, obviously-correct world used to verify the real implementation.
+//!
+//! Every operation is implemented the simplest possible way; differential
+//! tests run random operation sequences against both worlds and require
+//! identical observable state. Enabled by the `reference` feature; not part
+//! of the crate's supported API.
+
 use crate::{Component, Entities, Entity};
 use std::any::{Any, TypeId};
 use std::collections::HashMap;
 
 #[derive(Default)]
+/// The reference world. Mirrors [`World`](crate::World)'s API; entity ids
+/// match the real world's for identical operation sequences.
 pub struct RefWorld {
     entities: Entities,
     data: HashMap<Entity, HashMap<TypeId, Box<dyn Any>>>,
