@@ -65,6 +65,11 @@ impl Registry {
         id
     }
 
+    /// The id of the component registered under `key`, if any.
+    pub(crate) fn lookup(&self, key: ComponentKey) -> Option<ComponentId> {
+        self.by_key.get(&key).copied()
+    }
+
     pub(crate) fn info(&self, id: ComponentId) -> &ComponentInfo {
         &self.infos[id.0 as usize]
     }
@@ -170,6 +175,14 @@ mod tests {
         let mut ids = [ComponentId(2), ComponentId(0), ComponentId(1)];
         ids.sort();
         assert_eq!(ids, [ComponentId(0), ComponentId(1), ComponentId(2)]);
+    }
+
+    #[test]
+    fn lookup_finds_registered_keys_only() {
+        let mut r = Registry::new();
+        let pos = r.register::<Pos>();
+        assert_eq!(r.lookup(Pos::KEY), Some(pos));
+        assert_eq!(r.lookup(Vel::KEY), None);
     }
 
     #[test]

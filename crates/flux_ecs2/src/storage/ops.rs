@@ -184,13 +184,16 @@ pub(crate) unsafe fn swap_remove_row(
 }
 
 /// Moves one row from `src` to `dst`: intersection columns transfer
-/// ownership, src-only columns are dropped, dst-only columns are left
-/// uninitialized for the caller (same contract as `alloc_row`). Returns the
+/// ownership, dst-only columns are left uninitialized for the caller (same
+/// contract as `alloc_row`). Source-only columns are dropped when
+/// `drop_source_only` is true; otherwise their ownership has already been
+/// taken by the caller and they are abandoned without dropping. Returns the
 /// destination (chunk, row) and the entity swapped into the vacated src row,
 /// if any.
 ///
 /// Safety: `src_arch`/`dst_arch` are distinct archetypes; src_row < len;
-/// the source row is fully initialized.
+/// the source row is fully initialized, except that when `drop_source_only`
+/// is false every source-only value must already have been moved out.
 #[allow(clippy::too_many_arguments, reason = "internal primitive behind the World API, which owns every argument")]
 pub(crate) unsafe fn move_row(
     src_arch: &mut Archetype,
@@ -201,6 +204,7 @@ pub(crate) unsafe fn move_row(
     reg: &Registry,
     src_chunk: ChunkId,
     src_row: u16,
+    drop_source_only: bool,
 ) -> (ChunkId, u16, Option<Entity>) {
     let entity = unsafe { entity_at(chunks, &src_arch.layout, src_chunk, src_row) };
     let (dst_chunk, dst_row) = unsafe { alloc_row(dst_arch, dst_id, chunks, alloc, entity) };
@@ -227,7 +231,7 @@ pub(crate) unsafe fn move_row(
         } else if dst_col < dst_sig.len() && dst_sig[dst_col] < src_sig[src_col] {
             dst_col += 1;
         } else {
-            if let Some(drop_fn) = reg.info(src_sig[src_col]).drop_fn {
+            if drop_source_only && let Some(drop_fn) = reg.info(src_sig[src_col]).drop_fn {
                 unsafe {
                     drop_fn(component_ptr(chunks, &src_arch.layout, reg, src_chunk, src_col, src_row), 1)
                 };
@@ -841,6 +845,7 @@ mod tests {
                 &bench.reg,
                 src_chunk,
                 src_row,
+                true,
             )
         };
         assert_eq!(swapped, None, "single-row source has no tail to swap");
@@ -896,6 +901,7 @@ mod tests {
                 &bench.reg,
                 src_chunk,
                 src_row,
+                true,
             )
         };
         unsafe {
@@ -962,6 +968,7 @@ mod tests {
                 &bench.reg,
                 src_chunk,
                 src_row,
+                true,
             )
         };
         unsafe {
@@ -1007,6 +1014,38 @@ mod tests {
     }
 
     #[test]
+    fn move_row_without_dropping_leaves_source_only_ownership_with_the_caller() {
+        let mut bench = Bench::new();
+        // src {A, DropCounter} → dst {A}: caller takes the counter first
+        let mut src = bench.archetype(&[bench.a, bench.drop]);
+        let mut dst = bench.archetype(&[bench.a]);
+        let drops = Rc::new(Cell::new(0));
+
+        let entity = bench.entities.alloc();
+        let (src_chunk, src_row) = unsafe { alloc_row(&mut src, ARCH, &mut bench.chunks, &mut bench.alloc, entity) };
+        unsafe {
+            bench.write_val(&src.layout, src_chunk, Bench::col(&src, bench.a), src_row, A(3));
+            bench.write_val(&src.layout, src_chunk, Bench::col(&src, bench.drop), src_row, DropCounter(Rc::clone(&drops), 4));
+        }
+
+        let taken: DropCounter = unsafe {
+            component_ptr(&bench.chunks, &src.layout, &bench.reg, src_chunk, Bench::col(&src, bench.drop), src_row)
+                .cast::<DropCounter>()
+                .read()
+        };
+        let (dst_chunk, dst_row, _) = unsafe {
+            move_row(&mut src, &mut dst, DST, &mut bench.chunks, &mut bench.alloc, &bench.reg, src_chunk, src_row, false)
+        };
+        assert_eq!(drops.get(), 0, "abandoned source-only value must not be dropped by the move");
+        assert_eq!(taken.1, 4);
+        drop(taken);
+        assert_eq!(drops.get(), 1);
+        assert_eq!(unsafe { bench.read::<A>(&dst, dst_chunk, dst_row, Bench::col(&dst, bench.a)) }, A(3));
+
+        unsafe { swap_remove_row(&mut dst, &mut bench.chunks, &mut bench.alloc, &bench.reg, dst_chunk, dst_row, true) };
+    }
+
+    #[test]
     fn move_row_reports_the_swapped_source_entity() {
         let mut bench = Bench::new();
         let mut src = bench.archetype(&[bench.a]);
@@ -1028,6 +1067,7 @@ mod tests {
                 &bench.reg,
                 chunk,
                 row1,
+                true,
             )
         };
         assert_eq!(swapped, Some(e2));

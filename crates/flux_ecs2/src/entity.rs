@@ -85,6 +85,10 @@ impl Entities {
             .get_mut(entity.index as usize)
             .filter(|slot| slot.generation == entity.generation)
     }
+    
+    pub(crate) fn live_count(&self) -> usize {
+        self.slots.len() - self.free.len()
+    }
 
     const fn next_generation(generation: NonZeroU32) -> NonZeroU32 {
         match generation.checked_add(1) {

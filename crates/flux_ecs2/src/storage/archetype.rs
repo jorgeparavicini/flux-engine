@@ -40,7 +40,7 @@ impl Archetype {
             edge_remove: HashMap::new(),
         })
     }
-    
+
     /// The component ids of this archetype, sorted ascending.
     pub fn signature(&self) -> &[ComponentId] {
         &self.layout.components
@@ -70,7 +70,11 @@ impl Archetypes {
     ///
     /// Propagates [`LayoutError`] when the signature has no valid chunk
     /// layout; the index is left unchanged.
-    pub fn get_or_create(&mut self, ids: &[ComponentId], reg: &Registry) -> Result<ArchetypeId, LayoutError> {
+    pub fn get_or_create(
+        &mut self,
+        ids: &[ComponentId],
+        reg: &Registry,
+    ) -> Result<ArchetypeId, LayoutError> {
         if let Some(id) = self.by_signature.get(ids) {
             return Ok(*id);
         }
@@ -82,23 +86,39 @@ impl Archetypes {
         self.generation += 1;
         Ok(id)
     }
-    
+
     pub fn get(&self, id: ArchetypeId) -> &Archetype {
         &self.list[id.0 as usize]
     }
-    
+
     pub fn get_mut(&mut self, id: ArchetypeId) -> &mut Archetype {
         &mut self.list[id.0 as usize]
     }
-    
+
+    pub fn get_pair_mut(
+        &mut self,
+        first_id: ArchetypeId,
+        second_id: ArchetypeId,
+    ) -> (&mut Archetype, &mut Archetype) {
+        assert_ne!(first_id, second_id, "archetype ids must be distinct");
+        let (low, high) = (first_id.min(second_id), first_id.max(second_id));
+        let (head, tail) = self.list.split_at_mut(high.0 as usize);
+        let (low_ref, high_ref) = (&mut head[low.0 as usize], &mut tail[0]);
+        if first_id < second_id {
+            (low_ref, high_ref)
+        } else {
+            (high_ref, low_ref)
+        }
+    }
+
     pub fn len(&self) -> usize {
         self.list.len()
     }
-    
+
     pub fn is_empty(&self) -> bool {
         self.list.is_empty()
     }
-    
+
     /// Increases exactly when an archetype is created. Compare a remembered
     /// value against the current one to detect archetypes added since.
     pub fn generation(&self) -> u32 {
@@ -240,7 +260,10 @@ mod tests {
 
         arch.get_mut(ab).edge_remove.insert(a, bee);
         assert_eq!(arch.get(ab).edge_remove.get(&a), Some(&bee));
-        assert!(arch.get(bee).edge_remove.is_empty(), "edges are per-archetype");
+        assert!(
+            arch.get(bee).edge_remove.is_empty(),
+            "edges are per-archetype"
+        );
     }
 
     // --------------------------------------------------------------- generation
@@ -260,7 +283,38 @@ mod tests {
 
         arch.get_or_create(&[a], &reg).unwrap();
         arch.get_or_create(&[a, b], &reg).unwrap();
-        assert_eq!(arch.generation(), after_second, "lookups must not bump the generation");
+        assert_eq!(
+            arch.generation(),
+            after_second,
+            "lookups must not bump the generation"
+        );
+    }
+
+    #[test]
+    fn get_pair_mut_returns_two_distinct_archetypes() {
+        let (reg, [a, b, ..]) = setup();
+        let mut arch = Archetypes::new();
+        let first = arch.get_or_create(&[a], &reg).unwrap();
+        let second = arch.get_or_create(&[a, b], &reg).unwrap();
+
+        // both orders must work
+        for (x, y) in [(first, second), (second, first)] {
+            let (ax, ay) = arch.get_pair_mut(x, y);
+            assert_eq!(ax.signature().len(), if x == first { 1 } else { 2 });
+            assert_eq!(ay.signature().len(), if y == first { 1 } else { 2 });
+            ax.non_full = None;
+            ay.non_full = None; // proves both are usable mutably at once
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "distinct")]
+    #[cfg(debug_assertions)]
+    fn get_pair_mut_rejects_identical_ids() {
+        let (reg, [a, ..]) = setup();
+        let mut arch = Archetypes::new();
+        let id = arch.get_or_create(&[a], &reg).unwrap();
+        let _ = arch.get_pair_mut(id, id);
     }
 
     #[test]
