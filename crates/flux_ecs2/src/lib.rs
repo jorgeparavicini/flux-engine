@@ -23,6 +23,7 @@
 //! assert!(!world.is_alive(entity));
 //! ```
 #![feature(const_trait_impl, const_cmp)]
+mod access;
 mod bundle;
 mod entity;
 mod registry;
