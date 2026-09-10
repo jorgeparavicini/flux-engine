@@ -149,14 +149,12 @@ unsafe impl<T: Component> QueryData for Option<&T> {
         grant: &mut AccessGrant,
     ) -> Option<Self::Columns<'w>> {
         match view.column_index(T::KEY) {
-            Some(column) => Some(ops::column(
-                view.chunks,
-                view.layout,
-                view.reg,
-                view.chunk,
-                column,
-                grant,
-            )),
+            Some(column) => {
+                let col = unsafe {
+                    ops::column::<T>(view.chunks, view.layout, view.reg, view.chunk, column, grant)
+                }?;
+                Some(Some(col))
+            }
             None => Some(None),
         }
     }
@@ -469,6 +467,16 @@ mod tests {
             missing.is_none(),
             "absent component resolves to None for the whole chunk"
         );
+    }
+
+    #[test]
+    fn option_member_denied_by_the_grant_fails_the_whole_fetch() {
+        // A grant denial is a failure, not "component absent": it must not
+        // masquerade as Some(None).
+        let bench = Bench::new(1);
+        let mut no_b = AccessGrant::new(AccessList::read(A::KEY));
+        let denied = unsafe { <(&A, Option<&B>) as QueryData>::columns(&bench.view(), &mut no_b) };
+        assert!(denied.is_none());
     }
 
     #[test]

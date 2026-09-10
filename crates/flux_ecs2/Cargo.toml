@@ -21,3 +21,10 @@ workspace = true
 [[bench]]
 name = "baseline"
 harness = false
+[[bench]]
+name = "iteration"
+harness = false
+
+[[bench]]
+name = "fragmentation"
+harness = false

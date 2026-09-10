@@ -293,7 +293,49 @@ impl World {
     /// A query over this world's entities, using `state`'s cached matches.
     ///
     /// The query shape is checked at compile time: a shape whose access
-    /// conflicts with itself (e.g. `(&A, &mut A)`) is a compile error.
+    /// conflicts with itself is rejected during code generation.
+    ///
+    /// ```
+    /// use flux_ecs2::{Component, QueryState, World};
+    ///
+    /// #[derive(Component)]
+    /// struct Health(u32);
+    ///
+    /// let mut world = World::new();
+    /// world.spawn(Health(10));
+    /// let mut state = QueryState::<&mut Health>::new();
+    /// for column in world.query(&mut state).chunks() {
+    ///     for health in column {
+    ///         health.0 += 1;
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// Two mutable accesses to one component alias and do not compile:
+    ///
+    /// ```compile_fail,E0080
+    /// use flux_ecs2::{Component, QueryState, World};
+    ///
+    /// #[derive(Component)]
+    /// struct Health(u32);
+    ///
+    /// let mut world = World::new();
+    /// let mut state = QueryState::<(&mut Health, &mut Health)>::new();
+    /// let _ = world.query(&mut state); // error: query aliases a component mutably
+    /// ```
+    ///
+    /// Neither does a shared access alongside a mutable one:
+    ///
+    /// ```compile_fail,E0080
+    /// use flux_ecs2::{Component, QueryState, World};
+    ///
+    /// #[derive(Component)]
+    /// struct Health(u32);
+    ///
+    /// let mut world = World::new();
+    /// let mut state = QueryState::<(&Health, &mut Health)>::new();
+    /// let _ = world.query(&mut state); // error: query aliases a component mutably
+    /// ```
     pub fn query<'w, 's, D: QueryData>(
         &'w mut self,
         state: &'s mut QueryState<D>,

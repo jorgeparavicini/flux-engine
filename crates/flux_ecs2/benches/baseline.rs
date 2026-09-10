@@ -14,12 +14,10 @@ fn baseline(c: &mut Criterion) {
 
     c.bench_function("baseline/simple_iter_1M", |b| {
         b.iter(|| {
-            let pos = black_box(&mut pos);
-            let vel = black_box(&vel);
-            for i in 0..N {
-                pos[i] += vel[i] * dt;
+            for (p, v) in pos.iter_mut().zip(vel.iter()) {
+                *p += v * dt;
             }
-            black_box(&pos[N - 1]);
+            black_box(&mut pos);
         });
     });
 }
