@@ -300,7 +300,10 @@ pub(crate) unsafe fn column<'w, T: Component>(
 /// because the pointer's provenance is the raw chunk allocation, never a
 /// shared reference to the data, and the claim discipline guarantees no
 /// second mutable view exists through this grant.
-#[allow(clippy::mut_from_ref, reason = "provenance is the raw allocation; aliasing is excluded by grant claims")]
+#[allow(
+    clippy::mut_from_ref,
+    reason = "provenance is the raw allocation; aliasing is excluded by grant claims"
+)]
 pub(crate) unsafe fn column_mut<'w, T: Component>(
     chunks: &'w Chunks,
     layout: &ArchetypeLayout,
@@ -313,13 +316,30 @@ pub(crate) unsafe fn column_mut<'w, T: Component>(
     if !grant.allows_write(T::KEY) || reg.info(id).key != T::KEY || !grant.claim_mut(chunk, id) {
         return None;
     }
-    
+
     let len = chunks.len(chunk) as usize;
     unsafe {
         Some(std::slice::from_raw_parts_mut(
             component_ptr(chunks, layout, reg, chunk, column, 0).cast::<T>(),
             len,
         ))
+    }
+}
+
+/// The chunk's entity id column as a slice of the occupied rows.
+///
+/// # Safety
+///
+/// `chunk` belongs to an archetype described by `layout`; rows `0..len` are
+/// initialized.
+pub(crate) unsafe fn entity_column<'w>(
+    chunks: &'w Chunks,
+    layout: &ArchetypeLayout,
+    chunk: ChunkId,
+) -> &'w [Entity] {
+    let len = chunks.len(chunk) as usize;
+    unsafe {
+        std::slice::from_raw_parts(entity_slot_ptr(chunks, layout, chunk, 0), len)
     }
 }
 
@@ -432,7 +452,7 @@ mod tests {
         /// Writes `value` into (`chunk`, `row`, `col`), transferring ownership.
         unsafe fn write_val<T>(
             &self,
-            layout: &crate::storage::layout::ArchetypeLayout,
+            layout: &ArchetypeLayout,
             chunk: ChunkId,
             col: usize,
             row: u16,
@@ -747,7 +767,7 @@ mod tests {
         let payload = unsafe {
             (*component_ptr(&bench.chunks, &arch.layout, &bench.reg, chunk, col, 0)
                 .cast::<DropCounter>())
-            .1
+                .1
         };
         assert_eq!(payload, 1, "tail payload moved into the hole");
 
@@ -1073,8 +1093,8 @@ mod tests {
                 Bench::col(&dst, bench.drop),
                 dst_row,
             )
-            .cast::<DropCounter>())
-            .1
+                .cast::<DropCounter>())
+                .1
         };
         assert_eq!(payload, 9, "payload intact after the move");
 
@@ -1129,8 +1149,8 @@ mod tests {
                 Bench::col(&src, bench.drop),
                 src_row,
             )
-            .cast::<DropCounter>()
-            .read()
+                .cast::<DropCounter>()
+                .read()
         };
         let (dst_chunk, dst_row, _) = unsafe {
             move_row(
