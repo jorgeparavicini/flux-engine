@@ -41,5 +41,5 @@ pub use bundle::Bundle;
 pub use entity::{Entities, Entity};
 pub use registry::ComponentId;
 pub use world::World;
-pub use query::{Query, QueryState};
+pub use query::{Query, QueryFilter, QueryState, With, Without};
 pub use flux_ecs2_macros::Component;

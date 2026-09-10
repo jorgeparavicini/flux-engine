@@ -32,7 +32,7 @@ impl AccessGrant {
     }
 
     /// Records a mutable claim on (`chunk`, `id`); false if already claimed.
-    pub fn claim_mut(&mut self, chunk: ChunkId, id: ComponentId) -> bool {
+    pub(crate) fn claim_mut(&mut self, chunk: ChunkId, id: ComponentId) -> bool {
         if self.spent.contains(&(chunk, id)) {
             return false;
         }
@@ -41,7 +41,7 @@ impl AccessGrant {
     }
 
     /// Releases all claims on `chunk`.
-    pub fn release_chunk(&mut self, chunk: ChunkId) {
+    pub(crate) fn release_chunk(&mut self, chunk: ChunkId) {
         self.spent.retain(|(c, _)| *c != chunk);
     }
 }

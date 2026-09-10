@@ -2,18 +2,19 @@ use crate::query::data::QueryData;
 use crate::registry::Registry;
 use crate::storage::archetype::{ArchetypeId, Archetypes};
 use std::marker::PhantomData;
+use crate::query::filter::QueryFilter;
 
 /// Cached archetype matches of one query shape, reusable across calls.
 ///
 /// Refreshing scans only archetypes created since the last refresh, so a
 /// long-lived state stays current at O(new archetypes) per use.
-pub struct QueryState<D: QueryData> {
+pub struct QueryState<D: QueryData, F: QueryFilter = ()> {
     matched: Vec<ArchetypeId>,
     seen: usize,
-    _data: PhantomData<fn() -> D>,
+    _data: PhantomData<fn() -> (D, F)>,
 }
 
-impl<D: QueryData> Default for QueryState<D> {
+impl<D: QueryData, F: QueryFilter> Default for QueryState<D, F> {
     fn default() -> Self {
         Self {
             matched: Vec::new(),
@@ -23,7 +24,7 @@ impl<D: QueryData> Default for QueryState<D> {
     }
 }
 
-impl<D: QueryData> QueryState<D> {
+impl<D: QueryData, F: QueryFilter> QueryState<D, F> {
     /// Creates a state with no cached matches.
     pub fn new() -> Self {
         Self::default()
@@ -33,7 +34,8 @@ impl<D: QueryData> QueryState<D> {
     pub(crate) fn refresh(&mut self, archetypes: &Archetypes, reg: &Registry) {
         for index in self.seen..archetypes.len() {
             let id = ArchetypeId(index as u32);
-            if D::matches(archetypes.get(id).signature(), reg) {
+            let signature = archetypes.get(id).signature();
+            if D::matches(signature, reg) && F::filter_matches(signature, reg) {
                 self.matched.push(id);
             }
         }

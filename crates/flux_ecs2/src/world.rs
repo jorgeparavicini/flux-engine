@@ -1,11 +1,12 @@
+use crate::grant::AccessGrant;
+use crate::query::data::QueryData;
+use crate::query::filter::QueryFilter;
 use crate::registry::{ComponentId, Registry};
 use crate::storage::alloc::ChunkAlloc;
 use crate::storage::archetype::{ArchetypeId, Archetypes};
 use crate::storage::chunks::{ChunkId, Chunks};
 use crate::storage::ops;
 use crate::{Bundle, Component, Entities, Entity, Query, QueryState};
-use crate::grant::AccessGrant;
-use crate::query::data::QueryData;
 
 /// A collection of entities and their components.
 ///
@@ -133,7 +134,7 @@ impl World {
                     column,
                     row,
                 )
-                .cast::<T>(),
+                    .cast::<T>(),
             )
         }
     }
@@ -154,7 +155,7 @@ impl World {
                     column,
                     row,
                 )
-                .cast::<T>(),
+                    .cast::<T>(),
             )
         }
     }
@@ -336,10 +337,10 @@ impl World {
     /// let mut state = QueryState::<(&Health, &mut Health)>::new();
     /// let _ = world.query(&mut state); // error: query aliases a component mutably
     /// ```
-    pub fn query<'w, 's, D: QueryData>(
+    pub fn query<'w, 's, D: QueryData, F: QueryFilter>(
         &'w mut self,
-        state: &'s mut QueryState<D>,
-    ) -> Query<'w, 's, D> {
+        state: &'s mut QueryState<D, F>,
+    ) -> Query<'w, 's, D, F> {
         const { assert!(!D::ACCESS.self_conflicting(), "query aliases a component mutably") }
         state.refresh(&self.archetypes, &self.registry);
         Query {

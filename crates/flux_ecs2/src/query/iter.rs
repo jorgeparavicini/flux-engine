@@ -1,5 +1,6 @@
 use crate::grant::AccessGrant;
 use crate::query::data::{ChunkView, QueryData};
+use crate::query::filter::QueryFilter;
 use crate::query::state::QueryState;
 use crate::registry::Registry;
 use crate::storage::archetype::Archetypes;
@@ -9,17 +10,17 @@ use crate::storage::chunks::Chunks;
 ///
 /// Constructed by [`World::query`](crate::World::query); a shape that aliases
 /// a component mutably (e.g. `(&A, &mut A)`) fails to compile there.
-pub struct Query<'w, 's, D: QueryData> {
+pub struct Query<'w, 's, D: QueryData, F: QueryFilter> {
     pub(crate) chunks: &'w Chunks,
     pub(crate) archetypes: &'w Archetypes,
     pub(crate) reg: &'w Registry,
     pub(crate) grant: AccessGrant,
-    pub(crate) state: &'s QueryState<D>,
+    pub(crate) state: &'s QueryState<D, F>,
 }
 
-impl<'w, 's, D: QueryData> Query<'w, 's, D> {
+impl<'w, 's, D: QueryData, F: QueryFilter> Query<'w, 's, D, F> {
     /// Iterates the matched chunks, yielding each chunk's columns.
-    pub fn chunks(self) -> ChunkIter<'w, 's, D> {
+    pub fn chunks(self) -> ChunkIter<'w, 's, D, F> {
         ChunkIter {
             query: self,
             archetype_index: 0,
@@ -33,15 +34,15 @@ impl<'w, 's, D: QueryData> Query<'w, 's, D> {
 /// Yielded columns borrow the world for `'w`; the exclusive world borrow
 /// taken by [`World::query`](crate::World::query) is what excludes aliasing
 /// between queries.
-pub struct ChunkIter<'w, 's, D: QueryData> {
-    query: Query<'w, 's, D>,
+pub struct ChunkIter<'w, 's, D: QueryData, F: QueryFilter> {
+    query: Query<'w, 's, D, F>,
     /// Position in the state's matched-archetype list.
     archetype_index: usize,
     /// Position in the current archetype's chunk list.
     chunk_index: usize,
 }
 
-impl<'w, D: QueryData> Iterator for ChunkIter<'w, '_, D> {
+impl<'w, D: QueryData, F: QueryFilter> Iterator for ChunkIter<'w, '_, D, F> {
     type Item = D::Columns<'w>;
 
     fn next(&mut self) -> Option<Self::Item> {

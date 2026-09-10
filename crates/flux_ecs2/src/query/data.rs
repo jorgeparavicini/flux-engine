@@ -9,10 +9,10 @@ use crate::{Component, ComponentId, ComponentKey, Entity};
 /// One chunk of one archetype, as a query sees it.
 #[derive(Copy, Clone)]
 pub struct ChunkView<'w> {
-    pub chunks: &'w Chunks,
-    pub layout: &'w ArchetypeLayout,
-    pub reg: &'w Registry,
-    pub chunk: ChunkId,
+    pub(crate) chunks: &'w Chunks,
+    pub(crate) layout: &'w ArchetypeLayout,
+    pub(crate) reg: &'w Registry,
+    pub(crate) chunk: ChunkId,
 }
 
 impl ChunkView<'_> {
