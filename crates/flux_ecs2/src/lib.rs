@@ -31,6 +31,7 @@ mod grant;
 mod query;
 mod registry;
 mod storage;
+mod system;
 mod world;
 mod component;
 #[cfg(any(test, feature = "reference"))]
@@ -40,6 +41,7 @@ pub use component::{Component, ComponentKey, StorageClass, ThreadSafeComponent};
 pub use bundle::Bundle;
 pub use entity::{Entities, Entity};
 pub use registry::ComponentId;
+pub use system::{IntoSystem, Local, System};
 pub use world::World;
 pub use query::{Added, Changed, Query, QueryFilter, QueryState, With, Without};
 pub use flux_ecs2_macros::Component;

@@ -31,6 +31,13 @@ pub struct World {
     version: u64,
 }
 
+/// Shared view of a world during one system run: what parameters fetch from.
+pub struct WorldCells<'w> {
+    pub(crate) chunks: &'w Chunks,
+    pub(crate) archetypes: &'w Archetypes,
+    pub(crate) reg: &'w Registry,
+}
+
 impl World {
     /// Creates an empty world.
     pub fn new() -> Self {
@@ -363,6 +370,24 @@ impl World {
             grant: AccessGrant::at_version(D::ACCESS, self.version),
             state,
             last_seen,
+        }
+    }
+
+    /// Runs `system` once over this world.
+    pub fn run(&mut self, system: &mut impl crate::System) {
+        system.run(self);
+    }
+
+    pub(crate) fn bump_version(&mut self) -> u64 {
+        self.version += 1;
+        self.version
+    }
+
+    pub(crate) fn cells(&self) -> WorldCells<'_> {
+        WorldCells {
+            chunks: &self.chunks,
+            archetypes: &self.archetypes,
+            reg: &self.registry,
         }
     }
 

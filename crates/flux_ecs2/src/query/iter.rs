@@ -10,7 +10,7 @@ use crate::storage::chunks::Chunks;
 ///
 /// Constructed by [`World::query`](crate::World::query); a shape that aliases
 /// a component mutably (e.g. `(&A, &mut A)`) fails to compile there.
-pub struct Query<'w, 's, D: QueryData, F: QueryFilter> {
+pub struct Query<'w, 's, D: QueryData, F: QueryFilter = ()> {
     pub(crate) chunks: &'w Chunks,
     pub(crate) archetypes: &'w Archetypes,
     pub(crate) reg: &'w Registry,
@@ -49,7 +49,7 @@ impl<'w, 's, D: QueryData, F: QueryFilter> Query<'w, 's, D, F> {
 /// Yielded columns borrow the world for `'w`; the exclusive world borrow
 /// taken by [`World::query`](crate::World::query) is what excludes aliasing
 /// between queries.
-pub struct ChunkIter<'w, 's, D: QueryData, F: QueryFilter> {
+pub struct ChunkIter<'w, 's, D: QueryData, F: QueryFilter = ()> {
     query: Query<'w, 's, D, F>,
     /// Position in the state's matched-archetype list.
     archetype_index: usize,
