@@ -8,7 +8,7 @@ use crate::{Component, ComponentId, ComponentKey, Entity};
 
 /// One chunk of one archetype, as a query sees it.
 #[derive(Copy, Clone)]
-pub(crate) struct ChunkView<'w> {
+pub struct ChunkView<'w> {
     pub chunks: &'w Chunks,
     pub layout: &'w ArchetypeLayout,
     pub reg: &'w Registry,
@@ -36,7 +36,7 @@ impl ChunkView<'_> {
 /// `ACCESS` must declare every component `columns` touches, with `write`
 /// for every mutable access. `matches` must return true only for
 /// signatures `columns` can fully serve.
-pub(crate) unsafe trait QueryData {
+pub unsafe trait QueryData {
     /// Access this data declares, checked for self-conflicts at compile
     /// time by the query machinery.
     const ACCESS: AccessList;

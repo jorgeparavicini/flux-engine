@@ -23,6 +23,7 @@
 //! assert!(!world.is_alive(entity));
 //! ```
 #![feature(const_trait_impl, const_cmp)]
+
 mod access;
 mod bundle;
 mod entity;
@@ -40,4 +41,5 @@ pub use bundle::Bundle;
 pub use entity::{Entities, Entity};
 pub use registry::ComponentId;
 pub use world::World;
+pub use query::{Query, QueryState};
 pub use flux_ecs2_macros::Component;

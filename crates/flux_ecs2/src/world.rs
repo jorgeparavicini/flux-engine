@@ -3,7 +3,9 @@ use crate::storage::alloc::ChunkAlloc;
 use crate::storage::archetype::{ArchetypeId, Archetypes};
 use crate::storage::chunks::{ChunkId, Chunks};
 use crate::storage::ops;
-use crate::{Bundle, Component, Entities, Entity};
+use crate::{Bundle, Component, Entities, Entity, Query, QueryState};
+use crate::grant::AccessGrant;
+use crate::query::data::QueryData;
 
 /// A collection of entities and their components.
 ///
@@ -286,6 +288,25 @@ impl World {
             .expect("a shrunk signature always has a layout");
         self.archetypes.get_mut(src).edge_remove.insert(id, dst);
         dst
+    }
+
+    /// A query over this world's entities, using `state`'s cached matches.
+    ///
+    /// The query shape is checked at compile time: a shape whose access
+    /// conflicts with itself (e.g. `(&A, &mut A)`) is a compile error.
+    pub fn query<'w, 's, D: QueryData>(
+        &'w mut self,
+        state: &'s mut QueryState<D>,
+    ) -> Query<'w, 's, D> {
+        const { assert!(!D::ACCESS.self_conflicting(), "query aliases a component mutably") }
+        state.refresh(&self.archetypes, &self.registry);
+        Query {
+            chunks: &self.chunks,
+            archetypes: &self.archetypes,
+            reg: &self.registry,
+            grant: AccessGrant::new(D::ACCESS),
+            state,
+        }
     }
 
     fn locate<T: Component>(&self, entity: Entity) -> Option<(ChunkId, u16, usize, ArchetypeId)> {

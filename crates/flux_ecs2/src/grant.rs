@@ -8,7 +8,7 @@ use crate::{ComponentId, ComponentKey};
 /// writes additionally require an unspent claim on that (chunk, component)
 /// pair, so one grant can never mint two live mutable slices over the same
 /// column.
-pub(crate) struct AccessGrant {
+pub struct AccessGrant {
     allowed: AccessList,
     spent: Vec<(ChunkId, ComponentId)>,
 }
