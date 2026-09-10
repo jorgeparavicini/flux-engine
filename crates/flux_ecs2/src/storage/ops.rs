@@ -316,6 +316,7 @@ pub(crate) unsafe fn column_mut<'w, T: Component>(
     if !grant.allows_write(T::KEY) || reg.info(id).key != T::KEY || !grant.claim_mut(chunk, id) {
         return None;
     }
+    chunks.stamp_write_version(chunk, column, grant.version());
 
     let len = chunks.len(chunk) as usize;
     unsafe {

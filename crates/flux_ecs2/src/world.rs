@@ -28,6 +28,7 @@ pub struct World {
     archetypes: Archetypes,
     chunks: Chunks,
     alloc: ChunkAlloc,
+    version: u64,
 }
 
 impl World {
@@ -83,6 +84,8 @@ impl World {
         let slot = self.entities.slot_mut(entity).expect("just allocated");
         slot.chunk = chunk.0;
         slot.row = row;
+        self.version += 1;
+        self.stamp_all_columns(chunk, arch_id, true);
         entity
     }
 
@@ -144,6 +147,8 @@ impl World {
     /// None if the entity is dead or does not have the component.
     pub fn get_mut<T: Component>(&mut self, entity: Entity) -> Option<&mut T> {
         let (chunk, row, column, arch_id) = self.locate::<T>(entity)?;
+        self.version += 1;
+        self.chunks.stamp_write_version(chunk, column, self.version);
         let arch = self.archetypes.get(arch_id);
         unsafe {
             Some(
@@ -185,6 +190,8 @@ impl World {
                 ptr.drop_in_place();
                 ptr.write(value);
             }
+            self.version += 1;
+            self.chunks.stamp_write_version(chunk, column, self.version);
             return true;
         }
 
@@ -216,6 +223,8 @@ impl World {
         slot.chunk = dst_chunk.0;
         slot.row = dst_row;
         self.fix_swapped_slot(swapped, chunk, row);
+        self.version += 1;
+        self.stamp_all_columns(dst_chunk, dst_id, true);
         true
     }
 
@@ -250,6 +259,8 @@ impl World {
         slot.chunk = dst_chunk.0;
         slot.row = dst_row;
         self.fix_swapped_slot(swapped, chunk, row);
+        self.version += 1;
+        self.stamp_all_columns(dst_chunk, dst_id, true);
         Some(value)
     }
 
@@ -342,13 +353,16 @@ impl World {
         state: &'s mut QueryState<D, F>,
     ) -> Query<'w, 's, D, F> {
         const { assert!(!D::ACCESS.self_conflicting(), "query aliases a component mutably") }
+        self.version += 1;
+        let last_seen = state.advance_cursor(self.version);
         state.refresh(&self.archetypes, &self.registry);
         Query {
             chunks: &self.chunks,
             archetypes: &self.archetypes,
             reg: &self.registry,
-            grant: AccessGrant::new(D::ACCESS),
+            grant: AccessGrant::at_version(D::ACCESS, self.version),
             state,
+            last_seen,
         }
     }
 
@@ -374,6 +388,15 @@ impl World {
                 .expect("swapped entity is live");
             slot.chunk = chunk.0;
             slot.row = row;
+        }
+    }
+
+    fn stamp_all_columns(&self, chunk: ChunkId, arch_id: ArchetypeId, added: bool) {
+        for column in 0..self.archetypes.get(arch_id).signature().len() {
+            self.chunks.stamp_write_version(chunk, column, self.version);
+            if added {
+                self.chunks.stamp_added_version(chunk, column, self.version);
+            }
         }
     }
 }

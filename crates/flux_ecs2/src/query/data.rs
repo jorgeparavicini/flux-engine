@@ -48,6 +48,8 @@ pub unsafe trait QueryData {
     /// chunks.
     type Plan: Copy;
 
+    type Item<'a>;
+
     /// Whether an archetype with this signature is visited at all.
     fn matches(signature: &[ComponentId], reg: &Registry) -> bool;
 
@@ -82,6 +84,8 @@ pub unsafe trait QueryData {
         let plan = Self::plan(view.layout, view.reg)?;
         unsafe { Self::fetch(view, plan, grant) }
     }
+
+    fn row<'w, 'a>(columns: &'a mut Self::Columns<'w>, row: usize) -> Self::Item<'a>;
 }
 
 /// The signature position of `key`'s column in `layout`, if present.
@@ -99,6 +103,7 @@ unsafe impl<T: Component> QueryData for &T {
     const ACCESS: AccessList = AccessList::read(T::KEY);
     type Columns<'w> = &'w [T];
     type Plan = usize;
+    type Item<'a> = &'a T;
 
     fn matches(signature: &[ComponentId], reg: &Registry) -> bool {
         has::<T>(signature, reg)
@@ -115,12 +120,17 @@ unsafe impl<T: Component> QueryData for &T {
     ) -> Option<Self::Columns<'w>> {
         unsafe { ops::column::<T>(view.chunks, view.layout, view.reg, view.chunk, plan, grant) }
     }
+
+    fn row<'w, 'a>(columns: &'a mut Self::Columns<'w>, row: usize) -> Self::Item<'a> {
+        &columns[row]
+    }
 }
 
 unsafe impl<T: Component> QueryData for &mut T {
     const ACCESS: AccessList = AccessList::write(T::KEY);
     type Columns<'w> = &'w mut [T];
     type Plan = usize;
+    type Item<'a> = &'a mut T;
 
     fn matches(signature: &[ComponentId], reg: &Registry) -> bool {
         has::<T>(signature, reg)
@@ -137,6 +147,10 @@ unsafe impl<T: Component> QueryData for &mut T {
     ) -> Option<Self::Columns<'w>> {
         unsafe { ops::column_mut(view.chunks, view.layout, view.reg, view.chunk, plan, grant) }
     }
+
+    fn row<'w, 'a>(columns: &'a mut Self::Columns<'w>, row: usize) -> Self::Item<'a> {
+        &mut columns[row]
+    }
 }
 
 /// Yields the entity ids of each row; declares no component access.
@@ -144,6 +158,7 @@ unsafe impl QueryData for Entity {
     const ACCESS: AccessList = AccessList::EMPTY;
     type Columns<'w> = &'w [Entity];
     type Plan = ();
+    type Item<'a> = Entity;
 
     fn matches(_signature: &[ComponentId], _reg: &Registry) -> bool {
         true
@@ -160,6 +175,10 @@ unsafe impl QueryData for Entity {
     ) -> Option<Self::Columns<'w>> {
         unsafe { Some(ops::entity_column(view.chunks, view.layout, view.chunk)) }
     }
+
+    fn row<'w, 'a>(columns: &'a mut Self::Columns<'w>, row: usize) -> Self::Item<'a> {
+        columns[row]
+    }
 }
 
 /// Matches every archetype; resolves to `Some`/`None` per chunk, never per
@@ -168,6 +187,7 @@ unsafe impl<T: Component> QueryData for Option<&T> {
     const ACCESS: AccessList = AccessList::read(T::KEY);
     type Columns<'w> = Option<&'w [T]>;
     type Plan = Option<usize>;
+    type Item<'a> = Option<&'a T>;
 
     fn matches(_signature: &[ComponentId], _reg: &Registry) -> bool {
         true
@@ -185,12 +205,23 @@ unsafe impl<T: Component> QueryData for Option<&T> {
         match plan {
             Some(column) => {
                 let col = unsafe {
-                    ops::column::<T>(view.chunks, view.layout, view.reg, view.chunk, column, grant)
+                    ops::column::<T>(
+                        view.chunks,
+                        view.layout,
+                        view.reg,
+                        view.chunk,
+                        column,
+                        grant,
+                    )
                 }?;
                 Some(Some(col))
             }
             None => Some(None),
         }
+    }
+
+    fn row<'w, 'a>(columns: &'a mut Self::Columns<'w>, row: usize) -> Self::Item<'a> {
+        columns.map(|col| &col[row])
     }
 }
 
@@ -207,6 +238,8 @@ macro_rules! tuple_query_data {
 
             type Plan = ($($t::Plan,)+);
 
+            type Item<'a> = ($($t::Item<'a>,)+);
+
             fn matches(signature: &[ComponentId], reg: &Registry) -> bool {
                 $( if !$t::matches(signature, reg) { return false; } )+
                 true
@@ -220,6 +253,12 @@ macro_rules! tuple_query_data {
             unsafe fn fetch<'w>(view: &ChunkView<'w>, plan: Self::Plan, grant: &mut AccessGrant) -> Option<Self::Columns<'w>> {
                 let ($($t,)+) = plan;
                 Some(($( unsafe { $t::fetch(view, $t, grant) }?, )+))
+            }
+
+            #[allow(non_snake_case)]
+            fn row<'w, 'a>(columns: &'a mut Self::Columns<'w>, row: usize) -> Self::Item<'a> {
+                let ($($t,)+) = columns;
+                ($($t::row($t, row),)+)
             }
         }
     }

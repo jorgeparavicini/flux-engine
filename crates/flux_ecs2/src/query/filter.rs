@@ -1,3 +1,4 @@
+use crate::query::data::ChunkView;
 use crate::registry::Registry;
 use crate::{Component, ComponentId};
 use std::marker::PhantomData;
@@ -10,6 +11,11 @@ use std::marker::PhantomData;
 pub trait QueryFilter {
     /// Whether an archetype with this signature passes.
     fn filter_matches(signature: &[ComponentId], reg: &Registry) -> bool;
+
+    #[allow(unused_variables)]
+    fn keep_chunk(view: &ChunkView<'_>, last_seen: u64) -> bool {
+        true
+    }
 }
 
 impl QueryFilter for () {
@@ -53,6 +59,10 @@ macro_rules! tuple_query_filter {
         impl<$($t: QueryFilter),+> QueryFilter for ($($t,)+) {
             fn filter_matches(signature: &[ComponentId], reg: &Registry) -> bool {
                 $($t::filter_matches(signature, reg))&&+
+            }
+            
+            fn keep_chunk(view: &ChunkView<'_>, last_seen: u64) -> bool {
+                $($t::keep_chunk(view, last_seen))&&+
             }
         }
     };

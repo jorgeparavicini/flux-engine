@@ -1,8 +1,8 @@
 use crate::query::data::QueryData;
+use crate::query::filter::QueryFilter;
 use crate::registry::Registry;
 use crate::storage::archetype::{ArchetypeId, Archetypes};
 use std::marker::PhantomData;
-use crate::query::filter::QueryFilter;
 
 /// Cached archetype matches of one query shape, reusable across calls.
 ///
@@ -11,6 +11,7 @@ use crate::query::filter::QueryFilter;
 pub struct QueryState<D: QueryData, F: QueryFilter = ()> {
     matched: Vec<ArchetypeId>,
     seen: usize,
+    last_seen: u64,
     _data: PhantomData<fn() -> (D, F)>,
 }
 
@@ -19,6 +20,7 @@ impl<D: QueryData, F: QueryFilter> Default for QueryState<D, F> {
         Self {
             matched: Vec::new(),
             seen: 0,
+            last_seen: 0,
             _data: PhantomData,
         }
     }
@@ -45,6 +47,10 @@ impl<D: QueryData, F: QueryFilter> QueryState<D, F> {
     /// The matched archetypes, in creation order.
     pub(crate) fn matched(&self) -> &[ArchetypeId] {
         &self.matched
+    }
+
+    pub(crate) fn advance_cursor(&mut self, version: u64) -> u64 {
+        std::mem::replace(&mut self.last_seen, version)
     }
 }
 

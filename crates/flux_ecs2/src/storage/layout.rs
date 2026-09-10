@@ -9,7 +9,7 @@ pub(crate) const NO_COLUMN: u32 = u32::MAX;
 
 /// Byte map of one archetype's chunks: where each SoA column starts and how
 /// many rows fit. Computed once per archetype; identical for all its chunks.
-pub(crate) struct ArchetypeLayout {
+pub struct ArchetypeLayout {
     /// Rows per chunk; ≥ 1.
     pub capacity: u16,
     /// The archetype signature: component ids, sorted ascending, ZSTs included.
@@ -21,7 +21,7 @@ pub(crate) struct ArchetypeLayout {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum LayoutError {
+pub enum LayoutError {
     /// One row of this archetype does not fit in a chunk.
     EntityTooLarge,
 }

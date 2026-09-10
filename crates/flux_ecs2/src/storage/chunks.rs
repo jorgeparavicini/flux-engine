@@ -1,5 +1,6 @@
 use crate::storage::alloc::ChunkAlloc;
 use crate::storage::archetype::ArchetypeId;
+use std::cell::Cell;
 use std::ptr::NonNull;
 
 /// Dense index of a chunk within a world. Ids are recycled after
@@ -24,7 +25,8 @@ pub(crate) struct Chunks {
     archetype: Vec<ArchetypeId>,
     /// Per column, the world version of the last mutable access to that
     /// column in this chunk. 0 means "never written since this id was bound".
-    write_versions: Vec<Box<[u64]>>,
+    write_versions: Vec<Box<[Cell<u64>]>>,
+    added_versions: Vec<Box<[Cell<u64>]>>,
     /// Bumped on every structural change: rows added/removed/moved and chunk
     /// create/destroy. Never reset, including across id recycling: a value
     /// observed for a [`ChunkId`] is stale iff the current value is greater.
@@ -54,7 +56,8 @@ impl Chunks {
             self.base[id] = block;
             self.len[id] = 0;
             self.archetype[id] = archetype;
-            self.write_versions[id] = vec![0; columns].into_boxed_slice();
+            self.write_versions[id] = Self::new_stamps(columns);
+            self.added_versions[id] = Self::new_stamps(columns);
             self.order_version[id] += 1;
             free
         } else {
@@ -62,7 +65,8 @@ impl Chunks {
             self.base.push(block);
             self.len.push(0);
             self.archetype.push(archetype);
-            self.write_versions.push(vec![0; columns].into_boxed_slice());
+            self.write_versions.push(Self::new_stamps(columns));
+            self.added_versions.push(Self::new_stamps(columns));
             self.order_version.push(1);
             id
         }
@@ -116,13 +120,25 @@ impl Chunks {
     /// World version of the last mutable access to a column, where `column`
     /// is the component's position in the archetype's signature.
     pub fn write_version(&self, id: ChunkId, column: usize) -> u64 {
-        self.write_versions[id.0 as usize][column]
+        self.write_versions[id.0 as usize][column].get()
+    }
+
+    pub fn added_version(&self, id: ChunkId, column: usize) -> u64 {
+        self.added_versions[id.0 as usize][column].get()
     }
 
     /// Records a mutable access to a column at the given world version, where
     /// `column` is the component's position in the archetype's signature.
-    pub fn stamp_write_version(&mut self, id: ChunkId, column: usize, version: u64) {
-        self.write_versions[id.0 as usize][column] = version;
+    pub fn stamp_write_version(&self, id: ChunkId, column: usize, version: u64) {
+        self.write_versions[id.0 as usize][column].set(version);
+    }
+    
+    pub fn stamp_added_version(&self, id: ChunkId, column: usize, version: u64) {
+        self.added_versions[id.0 as usize][column].set(version);
+    }
+
+    fn new_stamps(columns: usize) -> Box<[Cell<u64>]> {
+        (0..columns).map(|_| Cell::new(0)).collect()
     }
 }
 

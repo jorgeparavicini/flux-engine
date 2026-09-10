@@ -10,6 +10,7 @@ use crate::{ComponentId, ComponentKey};
 /// column.
 pub struct AccessGrant {
     allowed: AccessList,
+    version: u64,
     /// Mutable-claim tracking is a debug net: the only `QueryData`
     /// implementations live in this crate, so a duplicate mutable fetch is a
     /// crate bug — caught by debug builds, tests, and miri. Release builds
@@ -22,6 +23,16 @@ impl AccessGrant {
     pub fn new(allowed: AccessList) -> Self {
         Self {
             allowed,
+            version: 0,
+            #[cfg(debug_assertions)]
+            spent: Vec::new(),
+        }
+    }
+    
+    pub fn at_version(allowed: AccessList, version: u64) -> Self {
+        Self {
+            allowed,
+            version,
             #[cfg(debug_assertions)]
             spent: Vec::new(),
         }
@@ -56,6 +67,10 @@ impl AccessGrant {
     pub(crate) fn release_chunk(&mut self, chunk: ChunkId) {
         #[cfg(debug_assertions)]
         self.spent.retain(|(c, _)| *c != chunk);
+    }
+    
+    pub fn version(&self) -> u64 {
+        self.version
     }
 }
 
