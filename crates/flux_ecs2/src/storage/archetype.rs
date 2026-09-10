@@ -157,7 +157,7 @@ mod tests {
         const KEY: ComponentKey = ComponentKey::from_path("archetype::tests::Zst");
         const STORAGE: StorageClass = StorageClass::Tag;
     }
-    struct Huge(#[allow(dead_code)] [u8; 20_000]);
+    struct Huge(#[allow(dead_code)] [u8; 70_000]);
     component!(Huge);
 
     fn setup() -> (Registry, [ComponentId; 5]) {

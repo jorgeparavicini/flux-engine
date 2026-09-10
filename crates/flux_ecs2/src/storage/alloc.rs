@@ -1,7 +1,7 @@
 use std::alloc::Layout;
 use std::ptr::NonNull;
 
-pub const CHUNK_SIZE: usize = 16 * 1024;
+pub const CHUNK_SIZE: usize = 64 * 1024;
 pub const CHUNK_ALIGN: usize = 64;
 
 
@@ -84,7 +84,7 @@ mod tests {
     fn chunk_shape_constants_are_pinned() {
         // Literals on purpose: layout code all over the crate assumes exactly
         // this shape, so a change must be a conscious, test-breaking act.
-        assert_eq!(CHUNK_SIZE, 16 * 1024);
+        assert_eq!(CHUNK_SIZE, 64 * 1024);
         assert_eq!(CHUNK_ALIGN, 64);
     }
 

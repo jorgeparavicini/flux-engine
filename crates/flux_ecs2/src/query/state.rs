@@ -166,7 +166,7 @@ mod tests {
     #[test]
     fn iteration_spans_multiple_chunks() {
         let mut world = World::new();
-        for i in 0..100u64 {
+        for i in 0..300u64 {
             world.spawn((Big([i; 64]), A(i)));
         }
         let mut state = QueryState::<&A>::new();
@@ -178,7 +178,7 @@ mod tests {
         seen.sort();
         assert_eq!(
             seen,
-            (0..100).collect::<Vec<_>>(),
+            (0..300).collect::<Vec<_>>(),
             "every row across every chunk, exactly once"
         );
     }

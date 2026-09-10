@@ -10,6 +10,11 @@ use crate::{ComponentId, ComponentKey};
 /// column.
 pub struct AccessGrant {
     allowed: AccessList,
+    /// Mutable-claim tracking is a debug net: the only `QueryData`
+    /// implementations live in this crate, so a duplicate mutable fetch is a
+    /// crate bug — caught by debug builds, tests, and miri. Release builds
+    /// keep the permission checks and skip the claim bookkeeping.
+    #[cfg(debug_assertions)]
     spent: Vec<(ChunkId, ComponentId)>,
 }
 
@@ -17,6 +22,7 @@ impl AccessGrant {
     pub fn new(allowed: AccessList) -> Self {
         Self {
             allowed,
+            #[cfg(debug_assertions)]
             spent: Vec::new(),
         }
     }
@@ -32,16 +38,23 @@ impl AccessGrant {
     }
 
     /// Records a mutable claim on (`chunk`, `id`); false if already claimed.
+    /// Release builds always claim successfully.
+    #[cfg_attr(not(debug_assertions), allow(unused_variables))]
     pub(crate) fn claim_mut(&mut self, chunk: ChunkId, id: ComponentId) -> bool {
-        if self.spent.contains(&(chunk, id)) {
-            return false;
+        #[cfg(debug_assertions)]
+        {
+            if self.spent.contains(&(chunk, id)) {
+                return false;
+            }
+            self.spent.push((chunk, id));
         }
-        self.spent.push((chunk, id));
         true
     }
 
     /// Releases all claims on `chunk`.
+    #[cfg_attr(not(debug_assertions), allow(unused_variables))]
     pub(crate) fn release_chunk(&mut self, chunk: ChunkId) {
+        #[cfg(debug_assertions)]
         self.spent.retain(|(c, _)| *c != chunk);
     }
 }
@@ -102,6 +115,7 @@ mod tests {
     // ------------------------------------------------------------------- claims
 
     #[test]
+    #[cfg(debug_assertions)]
     fn claims_are_per_chunk_per_component() {
         let mut g = AccessGrant::new(AccessList::write(A::KEY).concat(AccessList::write(B::KEY)));
         let (a, b) = (ComponentId(0), ComponentId(1));
@@ -121,6 +135,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(debug_assertions)]
     fn release_frees_only_that_chunks_claims() {
         let mut g = AccessGrant::new(AccessList::write(A::KEY));
         let a = ComponentId(0);
@@ -299,20 +314,23 @@ mod tests {
                 .expect("write is granted");
             col[2] = A(99);
         }
-        let denied = unsafe {
-            ops::column_mut::<A>(
-                &bench.chunks,
-                &bench.arch.layout,
-                &bench.reg,
-                bench.chunk,
-                bench.a_col,
-                &mut g,
-            )
-        };
-        assert!(
-            denied.is_none(),
-            "the claim is spent: no second mutable slice"
-        );
+        #[cfg(debug_assertions)]
+        {
+            let denied = unsafe {
+                ops::column_mut::<A>(
+                    &bench.chunks,
+                    &bench.arch.layout,
+                    &bench.reg,
+                    bench.chunk,
+                    bench.a_col,
+                    &mut g,
+                )
+            };
+            assert!(
+                denied.is_none(),
+                "the claim is spent: no second mutable slice"
+            );
+        }
 
         g.release_chunk(bench.chunk);
         let col = unsafe {

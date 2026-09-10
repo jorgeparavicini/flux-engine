@@ -25,6 +25,7 @@ impl<'w, 's, D: QueryData, F: QueryFilter> Query<'w, 's, D, F> {
             query: self,
             archetype_index: 0,
             chunk_index: 0,
+            plan: None,
         }
     }
 }
@@ -40,6 +41,8 @@ pub struct ChunkIter<'w, 's, D: QueryData, F: QueryFilter> {
     archetype_index: usize,
     /// Position in the current archetype's chunk list.
     chunk_index: usize,
+    /// Fetch plan for the current archetype, resolved on entering it.
+    plan: Option<D::Plan>,
 }
 
 impl<'w, D: QueryData, F: QueryFilter> Iterator for ChunkIter<'w, '_, D, F> {
@@ -54,10 +57,20 @@ impl<'w, D: QueryData, F: QueryFilter> Iterator for ChunkIter<'w, '_, D, F> {
                 // This archetype is exhausted; move to the next one.
                 self.archetype_index += 1;
                 self.chunk_index = 0;
+                self.plan = None;
                 continue;
             };
             self.chunk_index += 1;
 
+            let plan = match self.plan {
+                Some(plan) => plan,
+                None => {
+                    let plan = D::plan(&arch.layout, self.query.reg)
+                        .expect("state only matches archetypes D can serve");
+                    self.plan = Some(plan);
+                    plan
+                }
+            };
             let view = ChunkView {
                 chunks: self.query.chunks,
                 layout: &arch.layout,
@@ -65,8 +78,8 @@ impl<'w, D: QueryData, F: QueryFilter> Iterator for ChunkIter<'w, '_, D, F> {
                 chunk,
             };
             // SAFETY: `chunk` belongs to `arch`, which the state matched
-            // against D's requirements.
-            if let Some(columns) = unsafe { D::columns(&view, &mut self.query.grant) } {
+            // against D's requirements; `plan` was resolved from its layout.
+            if let Some(columns) = unsafe { D::fetch(&view, plan, &mut self.query.grant) } {
                 return Some(columns);
             }
         }

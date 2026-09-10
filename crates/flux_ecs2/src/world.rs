@@ -494,9 +494,9 @@ mod tests {
     #[test]
     fn spawning_across_chunk_boundaries_keeps_every_entity_addressable() {
         let mut w = World::new();
-        // Big makes capacity small enough that 100 spawns span several chunks.
-        let entities: Vec<_> = (0..100u64).map(|i| w.spawn((Big([i; 64]), A(i)))).collect();
-        assert_eq!(w.len(), 100);
+        // Big makes capacity small enough that 300 spawns span several chunks.
+        let entities: Vec<_> = (0..300u64).map(|i| w.spawn((Big([i; 64]), A(i)))).collect();
+        assert_eq!(w.len(), 300);
         for (i, e) in entities.iter().enumerate() {
             assert_eq!(w.get::<A>(*e), Some(&A(i as u64)));
             assert_eq!(w.get::<Big>(*e).unwrap().0[0], i as u64);

@@ -44,20 +44,50 @@ pub unsafe trait QueryData {
     /// The borrowed columns of one chunk.
     type Columns<'w>;
 
+    /// Resolved column positions for one archetype, shared by all of its
+    /// chunks.
+    type Plan: Copy;
+
     /// Whether an archetype with this signature is visited at all.
     fn matches(signature: &[ComponentId], reg: &Registry) -> bool;
 
-    /// Fetches the columns through the grant. None when the grant denies
-    /// an access (a spent claim included). May leave claims recorded on
-    /// failure; callers release per chunk.
+    /// Resolves the fetch plan for an archetype. None when the archetype
+    /// cannot serve this data; never None for an archetype `matches` accepts.
+    fn plan(layout: &ArchetypeLayout, reg: &Registry) -> Option<Self::Plan>;
+
+    /// Fetches the columns through the grant, using a plan resolved for this
+    /// chunk's archetype. None when the grant denies an access (a spent
+    /// claim included). May leave claims recorded on failure; callers
+    /// release per chunk.
     ///
     /// # Safety
     ///
-    /// `view.chunk` belongs to an archetype matching `Self` per `matches`.
+    /// `view.chunk` belongs to an archetype matching `Self` per `matches`,
+    /// and `plan` was resolved from that archetype's layout.
+    unsafe fn fetch<'w>(
+        view: &ChunkView<'w>,
+        plan: Self::Plan,
+        grant: &mut AccessGrant,
+    ) -> Option<Self::Columns<'w>>;
+
+    /// Plans and fetches in one step.
+    ///
+    /// # Safety
+    ///
+    /// As [`fetch`](Self::fetch).
     unsafe fn columns<'w>(
         view: &ChunkView<'w>,
         grant: &mut AccessGrant,
-    ) -> Option<Self::Columns<'w>>;
+    ) -> Option<Self::Columns<'w>> {
+        let plan = Self::plan(view.layout, view.reg)?;
+        unsafe { Self::fetch(view, plan, grant) }
+    }
+}
+
+/// The signature position of `key`'s column in `layout`, if present.
+fn column_of(layout: &ArchetypeLayout, reg: &Registry, key: ComponentKey) -> Option<usize> {
+    let id = reg.lookup(key)?;
+    layout.components.binary_search(&id).ok()
 }
 
 fn has<T: Component>(signature: &[ComponentId], reg: &Registry) -> bool {
@@ -68,52 +98,44 @@ fn has<T: Component>(signature: &[ComponentId], reg: &Registry) -> bool {
 unsafe impl<T: Component> QueryData for &T {
     const ACCESS: AccessList = AccessList::read(T::KEY);
     type Columns<'w> = &'w [T];
+    type Plan = usize;
 
     fn matches(signature: &[ComponentId], reg: &Registry) -> bool {
         has::<T>(signature, reg)
     }
 
-    unsafe fn columns<'w>(
+    fn plan(layout: &ArchetypeLayout, reg: &Registry) -> Option<Self::Plan> {
+        column_of(layout, reg, T::KEY)
+    }
+
+    unsafe fn fetch<'w>(
         view: &ChunkView<'w>,
+        plan: Self::Plan,
         grant: &mut AccessGrant,
     ) -> Option<Self::Columns<'w>> {
-        let column = view.column_index(T::KEY)?;
-        unsafe {
-            ops::column::<T>(
-                view.chunks,
-                view.layout,
-                view.reg,
-                view.chunk,
-                column,
-                grant,
-            )
-        }
+        unsafe { ops::column::<T>(view.chunks, view.layout, view.reg, view.chunk, plan, grant) }
     }
 }
 
 unsafe impl<T: Component> QueryData for &mut T {
     const ACCESS: AccessList = AccessList::write(T::KEY);
     type Columns<'w> = &'w mut [T];
+    type Plan = usize;
 
     fn matches(signature: &[ComponentId], reg: &Registry) -> bool {
         has::<T>(signature, reg)
     }
 
-    unsafe fn columns<'w>(
+    fn plan(layout: &ArchetypeLayout, reg: &Registry) -> Option<Self::Plan> {
+        column_of(layout, reg, T::KEY)
+    }
+
+    unsafe fn fetch<'w>(
         view: &ChunkView<'w>,
+        plan: Self::Plan,
         grant: &mut AccessGrant,
     ) -> Option<Self::Columns<'w>> {
-        let column = view.column_index(T::KEY)?;
-        unsafe {
-            ops::column_mut(
-                view.chunks,
-                view.layout,
-                view.reg,
-                view.chunk,
-                column,
-                grant,
-            )
-        }
+        unsafe { ops::column_mut(view.chunks, view.layout, view.reg, view.chunk, plan, grant) }
     }
 }
 
@@ -121,13 +143,19 @@ unsafe impl<T: Component> QueryData for &mut T {
 unsafe impl QueryData for Entity {
     const ACCESS: AccessList = AccessList::EMPTY;
     type Columns<'w> = &'w [Entity];
+    type Plan = ();
 
     fn matches(_signature: &[ComponentId], _reg: &Registry) -> bool {
         true
     }
 
-    unsafe fn columns<'w>(
+    fn plan(_layout: &ArchetypeLayout, _reg: &Registry) -> Option<Self::Plan> {
+        Some(())
+    }
+
+    unsafe fn fetch<'w>(
         view: &ChunkView<'w>,
+        _plan: Self::Plan,
         _grant: &mut AccessGrant,
     ) -> Option<Self::Columns<'w>> {
         unsafe { Some(ops::entity_column(view.chunks, view.layout, view.chunk)) }
@@ -139,16 +167,22 @@ unsafe impl QueryData for Entity {
 unsafe impl<T: Component> QueryData for Option<&T> {
     const ACCESS: AccessList = AccessList::read(T::KEY);
     type Columns<'w> = Option<&'w [T]>;
+    type Plan = Option<usize>;
 
     fn matches(_signature: &[ComponentId], _reg: &Registry) -> bool {
         true
     }
 
-    unsafe fn columns<'w>(
+    fn plan(layout: &ArchetypeLayout, reg: &Registry) -> Option<Self::Plan> {
+        Some(column_of(layout, reg, T::KEY))
+    }
+
+    unsafe fn fetch<'w>(
         view: &ChunkView<'w>,
+        plan: Self::Plan,
         grant: &mut AccessGrant,
     ) -> Option<Self::Columns<'w>> {
-        match view.column_index(T::KEY) {
+        match plan {
             Some(column) => {
                 let col = unsafe {
                     ops::column::<T>(view.chunks, view.layout, view.reg, view.chunk, column, grant)
@@ -171,13 +205,21 @@ macro_rules! tuple_query_data {
 
             type Columns<'w> = ($($t::Columns<'w>,)+);
 
+            type Plan = ($($t::Plan,)+);
+
             fn matches(signature: &[ComponentId], reg: &Registry) -> bool {
                 $( if !$t::matches(signature, reg) { return false; } )+
                 true
             }
 
-            unsafe fn columns<'w>(view: &ChunkView<'w>, grant: &mut AccessGrant) -> Option<Self::Columns<'w>> {
-                Some(($( unsafe { $t::columns(view, grant) }?, )+))
+            fn plan(layout: &ArchetypeLayout, reg: &Registry) -> Option<Self::Plan> {
+                Some(($( $t::plan(layout, reg)?, )+))
+            }
+
+            #[allow(non_snake_case)]
+            unsafe fn fetch<'w>(view: &ChunkView<'w>, plan: Self::Plan, grant: &mut AccessGrant) -> Option<Self::Columns<'w>> {
+                let ($($t,)+) = plan;
+                Some(($( unsafe { $t::fetch(view, $t, grant) }?, )+))
             }
         }
     }
@@ -504,6 +546,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(debug_assertions)]
     fn second_mutable_fetch_of_a_chunk_is_denied_until_release() {
         let bench = Bench::new(1);
         let mut grant = bench.grant_for::<&mut A>();

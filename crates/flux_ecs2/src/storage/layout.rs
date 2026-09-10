@@ -175,11 +175,11 @@ mod tests {
         const KEY: ComponentKey = ComponentKey::from_path("layout::tests::Tagged");
         const STORAGE: StorageClass = StorageClass::Tag;
     }
-    struct Huge(#[allow(dead_code)] [u8; 20_000]);
+    struct Huge(#[allow(dead_code)] [u8; 70_000]);
     component!(Huge);
-    struct NearChunk(#[allow(dead_code)] [u8; 16_368]);
+    struct NearChunk(#[allow(dead_code)] [u8; 65_520]);
     component!(NearChunk);
-    struct JustOver(#[allow(dead_code)] [u8; 16_377]);
+    struct JustOver(#[allow(dead_code)] [u8; 65_529]);
     component!(JustOver);
     #[repr(align(128))]
     struct A128(#[allow(dead_code)] [u8; 128]);
@@ -271,24 +271,24 @@ mod tests {
     }
 
     #[test]
-    fn single_u32_component_reaches_1365_rows() {
-        // stride = 8 (Entity) + 4 = 12; 16384 / 12 = 1365. Pins maximality:
+    fn single_u32_component_reaches_5461_rows() {
+        // stride = 8 (Entity) + 4 = 12; 65536 / 12 = 5461. Pins maximality:
         // an off-by-one in the capacity solve moves this number.
         let mut r = registry();
         let sig = ids(&mut r, &[B4::KEY]);
         let layout = ArchetypeLayout::new(&sig, &r).unwrap();
         assert_valid(&layout, &r);
-        assert_eq!(layout.capacity, 1365);
+        assert_eq!(layout.capacity, 5461);
     }
 
     #[test]
-    fn align16_component_reaches_682_rows() {
-        // stride = 8 + 16 = 24; 16384 / 24 = 682.
+    fn align16_component_reaches_2730_rows() {
+        // stride = 8 + 16 = 24; 65536 / 24 = 2730.
         let mut r = registry();
         let sig = ids(&mut r, &[A16::KEY]);
         let layout = ArchetypeLayout::new(&sig, &r).unwrap();
         assert_valid(&layout, &r);
-        assert_eq!(layout.capacity, 682);
+        assert_eq!(layout.capacity, 2730);
     }
 
     #[test]
@@ -342,7 +342,7 @@ mod tests {
 
     #[test]
     fn near_chunk_sized_component_fits_exactly_one_row() {
-        // 8 + 16368 = 16376 ≤ 16384 → capacity 1.
+        // 8 + 65520 = 65528 ≤ 65536 → capacity 1.
         let mut fresh = Registry::new();
         let id = fresh.register::<NearChunk>();
         let layout = ArchetypeLayout::new(&[id], &fresh).unwrap();
@@ -353,7 +353,7 @@ mod tests {
     #[test]
     fn component_that_cannot_fit_one_row_is_an_error() {
         let mut fresh = Registry::new();
-        let just_over = fresh.register::<JustOver>(); // 8 + 16377 > 16384
+        let just_over = fresh.register::<JustOver>(); // 8 + 65529 > 65536
         let huge = fresh.register::<Huge>();
         assert!(matches!(
             ArchetypeLayout::new(&[just_over], &fresh),

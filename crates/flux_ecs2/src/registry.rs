@@ -1,5 +1,29 @@
 use crate::{Component, ComponentKey, StorageClass};
 use std::collections::HashMap;
+use std::hash::{BuildHasherDefault, Hasher};
+
+/// Hasher for keys that already are hashes: passes the low 64 bits through.
+#[derive(Default)]
+pub(crate) struct KeyHasher(u64);
+
+impl Hasher for KeyHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        // ComponentKey hashes as one u128 write; fold it to 64 bits.
+        let mut lo = [0u8; 8];
+        lo.copy_from_slice(&bytes[..8]);
+        self.0 = u64::from_le_bytes(lo);
+    }
+
+    fn write_u128(&mut self, value: u128) {
+        self.0 = value as u64;
+    }
+}
+
+pub(crate) type KeyMap<V> = HashMap<ComponentKey, V, BuildHasherDefault<KeyHasher>>;
 
 /// Dense per-world index of a registered component type.
 ///
@@ -25,7 +49,7 @@ pub(crate) struct ComponentInfo {
 #[derive(Default)]
 pub struct Registry {
     infos: Vec<ComponentInfo>,
-    by_key: HashMap<ComponentKey, ComponentId>,
+    by_key: KeyMap<ComponentId>,
 }
 
 impl Registry {
