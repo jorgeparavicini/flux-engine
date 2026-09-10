@@ -26,6 +26,7 @@
 mod access;
 mod bundle;
 mod entity;
+mod grant;
 mod registry;
 mod storage;
 mod world;

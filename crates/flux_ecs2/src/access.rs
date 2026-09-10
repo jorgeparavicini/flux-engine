@@ -148,7 +148,7 @@ mod tests {
         assert_eq!(r.len(), 1);
         assert!(!r.terms()[0].write);
         assert!(w.terms()[0].write);
-        assert!(r.terms()[0].key == A);
+        assert_eq!(r.terms()[0].key, A);
         assert!(!r.self_conflicting());
         assert!(
             !w.self_conflicting(),

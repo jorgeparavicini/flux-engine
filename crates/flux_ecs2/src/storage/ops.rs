@@ -1,9 +1,10 @@
-use crate::Entity;
+use crate::grant::AccessGrant;
 use crate::registry::Registry;
 use crate::storage::alloc::ChunkAlloc;
 use crate::storage::archetype::{Archetype, ArchetypeId};
 use crate::storage::chunks::{ChunkId, Chunks};
 use crate::storage::layout::{ArchetypeLayout, NO_COLUMN};
+use crate::{Component, Entity};
 
 /// Allocates a row for `entity` in `arch`: reuses `non_full`, else creates
 /// a chunk (registering it with `arch_id`). Writes the entity column and
@@ -137,7 +138,12 @@ pub(crate) unsafe fn swap_remove_row(
     if drop_values {
         for (column, component_id) in arch.layout.components.iter().enumerate() {
             if let Some(drop_fn) = reg.info(*component_id).drop_fn {
-                unsafe { drop_fn(component_ptr(chunks, &arch.layout, reg, chunk, column, row), 1) };
+                unsafe {
+                    drop_fn(
+                        component_ptr(chunks, &arch.layout, reg, chunk, column, row),
+                        1,
+                    )
+                };
             }
         }
     }
@@ -194,7 +200,10 @@ pub(crate) unsafe fn swap_remove_row(
 /// Safety: `src_arch`/`dst_arch` are distinct archetypes; src_row < len;
 /// the source row is fully initialized, except that when `drop_source_only`
 /// is false every source-only value must already have been moved out.
-#[allow(clippy::too_many_arguments, reason = "internal primitive behind the World API, which owns every argument")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "internal primitive behind the World API, which owns every argument"
+)]
 pub(crate) unsafe fn move_row(
     src_arch: &mut Archetype,
     dst_arch: &mut Archetype,
@@ -233,15 +242,85 @@ pub(crate) unsafe fn move_row(
         } else {
             if drop_source_only && let Some(drop_fn) = reg.info(src_sig[src_col]).drop_fn {
                 unsafe {
-                    drop_fn(component_ptr(chunks, &src_arch.layout, reg, src_chunk, src_col, src_row), 1)
+                    drop_fn(
+                        component_ptr(chunks, &src_arch.layout, reg, src_chunk, src_col, src_row),
+                        1,
+                    )
                 };
             }
             src_col += 1;
         }
     }
 
-    let swapped = unsafe { swap_remove_row(src_arch, chunks, alloc, reg, src_chunk, src_row, false) };
+    let swapped =
+        unsafe { swap_remove_row(src_arch, chunks, alloc, reg, src_chunk, src_row, false) };
     (dst_chunk, dst_row, swapped)
+}
+
+/// The chunk's `T` column as a slice of the occupied rows.
+///
+/// None if the grant does not allow reading `T`, or `column` is not `T`'s
+/// column. Zero-sized columns yield a valid slice of `len` values.
+///
+/// # Safety
+///
+/// `chunk` belongs to an archetype described by `layout`; `column` indexes
+/// the signature; rows `0..len` are initialized.
+pub(crate) unsafe fn column<'w, T: Component>(
+    chunks: &'w Chunks,
+    layout: &ArchetypeLayout,
+    reg: &Registry,
+    chunk: ChunkId,
+    column: usize,
+    grant: &AccessGrant,
+) -> Option<&'w [T]> {
+    if !grant.allows_read(T::KEY) {
+        return None;
+    }
+
+    if reg.info(layout.components[column]).key != T::KEY {
+        return None;
+    }
+
+    let len = chunks.len(chunk) as usize;
+    unsafe {
+        Some(std::slice::from_raw_parts(
+            component_ptr(chunks, layout, reg, chunk, column, 0).cast::<T>(),
+            len,
+        ))
+    }
+}
+
+/// Mutable variant of [`column`](column()): requires write permission and an unspent
+/// claim on the (chunk, component) pair, which it records on success.
+///
+/// # Safety
+///
+/// As [`column`](column()). The returned `&mut` is manufactured from `&Chunks`: sound
+/// because the pointer's provenance is the raw chunk allocation, never a
+/// shared reference to the data, and the claim discipline guarantees no
+/// second mutable view exists through this grant.
+#[allow(clippy::mut_from_ref, reason = "provenance is the raw allocation; aliasing is excluded by grant claims")]
+pub(crate) unsafe fn column_mut<'w, T: Component>(
+    chunks: &'w Chunks,
+    layout: &ArchetypeLayout,
+    reg: &Registry,
+    chunk: ChunkId,
+    column: usize,
+    grant: &mut AccessGrant,
+) -> Option<&'w mut [T]> {
+    let id = layout.components[column];
+    if !grant.allows_write(T::KEY) || reg.info(id).key != T::KEY || !grant.claim_mut(chunk, id) {
+        return None;
+    }
+    
+    let len = chunks.len(chunk) as usize;
+    unsafe {
+        Some(std::slice::from_raw_parts_mut(
+            component_ptr(chunks, layout, reg, chunk, column, 0).cast::<T>(),
+            len,
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -668,7 +747,7 @@ mod tests {
         let payload = unsafe {
             (*component_ptr(&bench.chunks, &arch.layout, &bench.reg, chunk, col, 0)
                 .cast::<DropCounter>())
-                .1
+            .1
         };
         assert_eq!(payload, 1, "tail payload moved into the hole");
 
@@ -994,8 +1073,8 @@ mod tests {
                 Bench::col(&dst, bench.drop),
                 dst_row,
             )
-                .cast::<DropCounter>())
-                .1
+            .cast::<DropCounter>())
+            .1
         };
         assert_eq!(payload, 9, "payload intact after the move");
 
@@ -1022,27 +1101,74 @@ mod tests {
         let drops = Rc::new(Cell::new(0));
 
         let entity = bench.entities.alloc();
-        let (src_chunk, src_row) = unsafe { alloc_row(&mut src, ARCH, &mut bench.chunks, &mut bench.alloc, entity) };
+        let (src_chunk, src_row) =
+            unsafe { alloc_row(&mut src, ARCH, &mut bench.chunks, &mut bench.alloc, entity) };
         unsafe {
-            bench.write_val(&src.layout, src_chunk, Bench::col(&src, bench.a), src_row, A(3));
-            bench.write_val(&src.layout, src_chunk, Bench::col(&src, bench.drop), src_row, DropCounter(Rc::clone(&drops), 4));
+            bench.write_val(
+                &src.layout,
+                src_chunk,
+                Bench::col(&src, bench.a),
+                src_row,
+                A(3),
+            );
+            bench.write_val(
+                &src.layout,
+                src_chunk,
+                Bench::col(&src, bench.drop),
+                src_row,
+                DropCounter(Rc::clone(&drops), 4),
+            );
         }
 
         let taken: DropCounter = unsafe {
-            component_ptr(&bench.chunks, &src.layout, &bench.reg, src_chunk, Bench::col(&src, bench.drop), src_row)
-                .cast::<DropCounter>()
-                .read()
+            component_ptr(
+                &bench.chunks,
+                &src.layout,
+                &bench.reg,
+                src_chunk,
+                Bench::col(&src, bench.drop),
+                src_row,
+            )
+            .cast::<DropCounter>()
+            .read()
         };
         let (dst_chunk, dst_row, _) = unsafe {
-            move_row(&mut src, &mut dst, DST, &mut bench.chunks, &mut bench.alloc, &bench.reg, src_chunk, src_row, false)
+            move_row(
+                &mut src,
+                &mut dst,
+                DST,
+                &mut bench.chunks,
+                &mut bench.alloc,
+                &bench.reg,
+                src_chunk,
+                src_row,
+                false,
+            )
         };
-        assert_eq!(drops.get(), 0, "abandoned source-only value must not be dropped by the move");
+        assert_eq!(
+            drops.get(),
+            0,
+            "abandoned source-only value must not be dropped by the move"
+        );
         assert_eq!(taken.1, 4);
         drop(taken);
         assert_eq!(drops.get(), 1);
-        assert_eq!(unsafe { bench.read::<A>(&dst, dst_chunk, dst_row, Bench::col(&dst, bench.a)) }, A(3));
+        assert_eq!(
+            unsafe { bench.read::<A>(&dst, dst_chunk, dst_row, Bench::col(&dst, bench.a)) },
+            A(3)
+        );
 
-        unsafe { swap_remove_row(&mut dst, &mut bench.chunks, &mut bench.alloc, &bench.reg, dst_chunk, dst_row, true) };
+        unsafe {
+            swap_remove_row(
+                &mut dst,
+                &mut bench.chunks,
+                &mut bench.alloc,
+                &bench.reg,
+                dst_chunk,
+                dst_row,
+                true,
+            )
+        };
     }
 
     #[test]
