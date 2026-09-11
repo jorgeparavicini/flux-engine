@@ -344,6 +344,79 @@ pub(crate) unsafe fn entity_column<'w>(
     }
 }
 
+/// Bulk-moves every row of `src_chunk` into `dst_arch`, appending them and
+/// range-copying each intersection column and the entity column. Does not
+/// remove the rows from the source: the caller destroys `src_chunk` after.
+///
+/// Returns, per source row in order, the destination `(chunk, row)`.
+///
+/// # Safety
+///
+/// `src_chunk` belongs to an archetype whose signature is a subset of
+/// `dst_arch`'s (an insert), and its rows are fully initialized.
+#[allow(clippy::too_many_arguments)]
+pub(crate) unsafe fn move_full_chunk(
+    src_layout: &ArchetypeLayout,
+    dst_arch: &mut Archetype,
+    dst_id: ArchetypeId,
+    chunks: &mut Chunks,
+    alloc: &mut ChunkAlloc,
+    reg: &Registry,
+    src_chunk: ChunkId,
+    out: &mut Vec<(ChunkId, u16)>,
+) {
+    let total = chunks.len(src_chunk) as usize;
+    let mut moved = 0usize;
+    while moved < total {
+        // Find or create a destination chunk with room, append a contiguous run.
+        let dst_chunk = match dst_arch.non_full {
+            Some(c) if chunks.len(c) < dst_arch.layout.capacity => c,
+            _ => {
+                let c = chunks.create(alloc, dst_id, dst_arch.layout.components.len());
+                dst_arch.chunks.push(c);
+                c
+            }
+        };
+        let dst_start = chunks.len(dst_chunk) as usize;
+        let run = (dst_arch.layout.capacity as usize - dst_start).min(total - moved);
+
+        // Copy the entity column range.
+        unsafe {
+            let src = entity_slot_ptr(chunks, src_layout, src_chunk, moved as u16).cast_const();
+            let dst = entity_slot_ptr(chunks, &dst_arch.layout, dst_chunk, dst_start as u16);
+            std::ptr::copy_nonoverlapping(src, dst, run);
+        }
+        // Copy each intersection column range (two-pointer merge of signatures).
+        let (src_sig, dst_sig) = (&src_layout.components, &dst_arch.layout.components);
+        let (mut i, mut j) = (0, 0);
+        while i < src_sig.len() {
+            if j < dst_sig.len() && src_sig[i] == dst_sig[j] {
+                if src_layout.offsets[i] != NO_COLUMN {
+                    let size = reg.info(src_sig[i]).size;
+                    unsafe {
+                        let src = component_ptr(chunks, src_layout, reg, src_chunk, i, moved as u16);
+                        let dst = component_ptr(chunks, &dst_arch.layout, reg, dst_chunk, j, dst_start as u16);
+                        std::ptr::copy_nonoverlapping(src, dst, size * run);
+                    }
+                }
+                i += 1;
+                j += 1;
+            } else if j < dst_sig.len() && dst_sig[j] < src_sig[i] {
+                j += 1; // dst-only: left for the caller
+            } else {
+                i += 1; // src-only cannot occur for an insert (subset), but skip safely
+            }
+        }
+        for k in 0..run {
+            out.push((dst_chunk, (dst_start + k) as u16));
+        }
+        chunks.set_len(dst_chunk, (dst_start + run) as u16);
+        chunks.bump_order_version(dst_chunk);
+        dst_arch.non_full = (chunks.len(dst_chunk) < dst_arch.layout.capacity).then_some(dst_chunk);
+        moved += run;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

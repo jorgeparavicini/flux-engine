@@ -249,6 +249,121 @@ impl World {
         true
     }
 
+    /// Adds `T` to many entities at once, grouped by source archetype so the
+    /// archetype transition is resolved once per group rather than per entity.
+    ///
+    /// Entities that are dead, or already have `T`, fall back to the
+    /// per-entity path. Equivalent in effect to calling [`insert`](Self::insert)
+    /// on each item.
+    pub fn insert_batch<T: Component>(&mut self, items: impl IntoIterator<Item = (Entity, T)>) {
+        let id = self.registry.register::<T>();
+        let mut groups: std::collections::HashMap<ArchetypeId, Vec<(Entity, T)>> =
+            std::collections::HashMap::new();
+        let mut replaces: Vec<(Entity, T)> = Vec::new();
+        for (entity, value) in items {
+            let Some(slot) = self.entities.slot(entity) else {
+                continue; // dead: value dropped
+            };
+            let src = self.chunks.archetype(ChunkId(slot.chunk));
+            if self.archetypes.get(src).signature().binary_search(&id).is_ok() {
+                replaces.push((entity, value));
+            } else {
+                groups.entry(src).or_default().push((entity, value));
+            }
+        }
+        for (entity, value) in replaces {
+            self.insert(entity, value);
+        }
+        if groups.is_empty() {
+            return;
+        }
+        self.version += 1;
+        let version = self.version;
+        // Deterministic group order (archetype id) for stable results.
+        let mut group_keys: Vec<ArchetypeId> = groups.keys().copied().collect();
+        group_keys.sort();
+        for src_id in group_keys {
+            let items = groups.remove(&src_id).expect("key present");
+            let src_chunks = self.archetypes.get(src_id).chunks.clone();
+            let arch_total: usize = src_chunks
+                .iter()
+                .map(|&c| self.chunks.len(c) as usize)
+                .sum();
+            let dst_id = self.add_edge_target(src_id, id);
+
+            if items.len() != arch_total {
+                // Partial coverage: per-entity fallback.
+                for (entity, value) in items {
+                    self.insert(entity, value);
+                }
+                continue;
+            }
+
+            // Whole-archetype coverage: bulk range-copy chunk by chunk, then
+            // destroy the source chunks (no per-entity swap_remove).
+            //
+            // Values are placed in a Vec keyed by entity index (dense, no
+            // hashing) so lookup during the move is O(1).
+            let capacity = items
+                .iter()
+                .map(|(e, _)| e.index() as usize + 1)
+                .max()
+                .unwrap_or(0);
+            let mut values: Vec<Option<T>> = (0..capacity).map(|_| None).collect();
+            for (entity, value) in items {
+                values[entity.index() as usize] = Some(value);
+            }
+            let entities = &mut self.entities;
+            let chunks = &mut self.chunks;
+            let alloc = &mut self.alloc;
+            let registry = &self.registry;
+            let (src_arch, dst_arch) = self.archetypes.get_pair_mut(src_id, dst_id);
+            let dst_column = dst_arch
+                .signature()
+                .binary_search(&id)
+                .expect("inserted component is in the target signature");
+            let dst_columns = dst_arch.signature().len();
+            let mut touched: std::collections::HashSet<ChunkId> = std::collections::HashSet::new();
+
+            for &src_chunk in &src_chunks {
+                let len = chunks.len(src_chunk) as usize;
+                let mut out: Vec<(ChunkId, u16)> = Vec::with_capacity(len);
+                unsafe {
+                    ops::move_full_chunk(
+                        &src_arch.layout, dst_arch, dst_id, chunks, alloc, registry, src_chunk, &mut out,
+                    );
+                }
+                for &(dst_chunk, dst_row) in &out {
+                    let entity = unsafe { ops::entity_at(chunks, &dst_arch.layout, dst_chunk, dst_row) };
+                    let value = values[entity.index() as usize].take().expect("entity is in the batch");
+                    unsafe {
+                        ops::component_ptr(chunks, &dst_arch.layout, registry, dst_chunk, dst_column, dst_row)
+                            .cast::<T>()
+                            .write(value);
+                    }
+                    let slot = entities.slot_mut(entity).expect("checked live");
+                    slot.chunk = dst_chunk.0;
+                    slot.row = dst_row;
+                    touched.insert(dst_chunk);
+                }
+            }
+            // Retire the emptied source chunks.
+            for &src_chunk in &src_chunks {
+                chunks.set_len(src_chunk, 0);
+                chunks.destroy(alloc, src_chunk);
+            }
+            src_arch.chunks.clear();
+            src_arch.non_full = None;
+            // Stamp each touched destination chunk once.
+            for chunk in touched {
+                for column in 0..dst_columns {
+                    chunks.stamp_write_version(chunk, column, version);
+                    chunks.stamp_added_version(chunk, column, version);
+                }
+            }
+        }
+    }
+
     /// Takes `T` off `entity` and returns it.
     ///
     /// None if the entity is dead or does not have the component.
@@ -531,6 +646,9 @@ mod tests {
     struct Big([u64; 64]);
     component!(Big);
     #[derive(Copy, Clone, PartialEq, Debug)]
+    struct C(u64);
+    component!(C);
+    #[derive(Copy, Clone, PartialEq, Debug)]
     struct Marker;
     impl Component for Marker {
         const KEY: ComponentKey = ComponentKey::from_path("world::tests::Marker");
@@ -789,6 +907,61 @@ mod tests {
     }
 
     // ------------------------------------------------------------------- drop
+
+    #[test]
+    fn insert_batch_matches_per_entity_insert() {
+        // Two worlds, same spawns; one uses insert_batch, one the per-entity
+        // loop. Every entity must end identical.
+        let entities: Vec<u64> = (0..2000).collect();
+        let mut batched = World::new();
+        let mut per_entity = World::new();
+        let mut b_ids = Vec::new();
+        let mut p_ids = Vec::new();
+        for &i in &entities {
+            b_ids.push(batched.spawn((A(i),)));
+            p_ids.push(per_entity.spawn((A(i),)));
+        }
+        batched.insert_batch(b_ids.iter().map(|&e| (e, B(7))));
+        for &e in &p_ids {
+            per_entity.insert(e, B(7));
+        }
+        for i in 0..entities.len() {
+            assert_eq!(batched.get::<A>(b_ids[i]), Some(&A(entities[i])));
+            assert_eq!(batched.get::<B>(b_ids[i]), Some(&B(7)));
+            assert_eq!(batched.get::<A>(b_ids[i]), per_entity.get::<A>(p_ids[i]));
+        }
+        assert_eq!(batched.len(), per_entity.len());
+    }
+
+    #[test]
+    fn insert_batch_groups_multiple_source_archetypes() {
+        let mut w = World::new();
+        let a_only: Vec<_> = (0..10).map(|i| w.spawn((A(i),))).collect();
+        let ab: Vec<_> = (0..10).map(|i| w.spawn((A(i), B(0)))).collect();
+        // insert C into both groups at once: {A}->{A,C} and {A,B}->{A,B,C}
+        let all: Vec<_> = a_only.iter().chain(ab.iter()).map(|&e| (e, C(1))).collect();
+        w.insert_batch(all);
+        for &e in &a_only {
+            assert!(w.has::<C>(e) && w.has::<A>(e) && !w.has::<B>(e));
+        }
+        for &e in &ab {
+            assert!(w.has::<C>(e) && w.has::<A>(e) && w.has::<B>(e));
+        }
+    }
+
+    #[test]
+    fn insert_batch_handles_dead_and_replace() {
+        let mut w = World::new();
+        let live = w.spawn((A(1),));
+        let has_b = w.spawn((A(2), B(0)));
+        let dead = w.spawn((A(3),));
+        w.despawn(dead);
+        w.insert_batch([(live, B(9)), (has_b, B(9)), (dead, B(9))]);
+        assert_eq!(w.get::<B>(live), Some(&B(9)), "added");
+        assert_eq!(w.get::<B>(has_b), Some(&B(9)), "replaced in place");
+        assert!(!w.is_alive(dead));
+        assert_eq!(w.len(), 2);
+    }
 
     #[test]
     fn dropping_the_world_drops_every_live_component() {

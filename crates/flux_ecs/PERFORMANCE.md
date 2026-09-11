@@ -5,6 +5,23 @@ Each entry names its trigger — the observation that should cause the work —
 so nothing here depends on remembering this file at the right moment: check
 it whenever a profile or benchmark looks off.
 
+## Bulk structural change: closing the last gap to 5x
+
+`World::insert_batch` groups inserts by source archetype and, for a source
+the batch fully covers, bulk range-copies whole chunks into the destination
+and destroys the source chunks — no per-entity alloc_row, swap_remove, edge
+lookup, or per-column stamping. Measured on 1M entities: ~3.5x faster than
+the per-entity path at an 8-component source, ~4.1x at 16 components; the
+ratio scales with source width but plateaus near 4x because both paths move
+the same data volume (range-copy is bandwidth-bound at high width).
+
+The roadmap's >=5x is not yet met. The remaining gap is the per-entity inner
+loop that survives batching — the value write and slot update, both scattered
+(cache-missing) — plus the value-staging Vec. Candidate work: write the new
+column in dst-row order (sequential) instead of via the staging Vec; batch
+slot updates by sorting moved entities by index. Value-less inserts (markers)
+are handled with zero moves by toggleable components, a separate mechanism.
+
 ## Command queues: byte-arena encoding and batched application
 
 Commands are a `Vec<Command>` enum with boxed payloads: one small heap

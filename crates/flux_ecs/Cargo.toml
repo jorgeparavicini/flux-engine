@@ -32,3 +32,7 @@ harness = false
 [[bench]]
 name = "parallel"
 harness = false
+
+[[bench]]
+name = "structural"
+harness = false
