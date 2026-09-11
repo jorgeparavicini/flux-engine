@@ -107,7 +107,7 @@ mod tests {
     use std::collections::HashSet;
     use std::rc::Rc;
 
-    // Manual impls: the derive's `::flux_ecs2::` paths do not resolve in-crate.
+    // Manual impls: the derive's `::flux_ecs::` paths do not resolve in-crate.
     macro_rules! component {
         ($name:ident) => {
             impl Component for $name {

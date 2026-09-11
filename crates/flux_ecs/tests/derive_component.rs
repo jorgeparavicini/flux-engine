@@ -1,6 +1,6 @@
 //! Observable behaviour of `#[derive(Component)]`.
 //!
-//! Lives in `tests/` because the derive expands to `::flux_ecs2::...` paths,
+//! Lives in `tests/` because the derive expands to `::flux_ecs::...` paths,
 //! which only resolve from outside the crate. This file's crate name is
 //! `derive_component`, so `module_path!()` at the root is exactly that.
 //!
@@ -8,7 +8,7 @@
 //! requires the same feature gates as the crate itself.
 #![feature(const_trait_impl, const_cmp)]
 
-use flux_ecs2::{Component, ComponentKey, StorageClass};
+use flux_ecs::{Component, ComponentKey, StorageClass};
 use std::collections::HashSet;
 use std::rc::Rc;
 
@@ -44,14 +44,14 @@ struct VulkanHandle(#[allow(dead_code)] Rc<u8>);
 struct PinnedAnyway(#[allow(dead_code)] u32);
 
 mod inner {
-    use flux_ecs2::Component;
+    use flux_ecs::Component;
 
     /// Same type NAME as the root `Position` — must get a different key.
     #[derive(Component)]
     pub struct Position;
 
     pub mod deeper {
-        use flux_ecs2::Component;
+        use flux_ecs::Component;
 
         #[derive(Component)]
         pub struct Position;
@@ -59,7 +59,7 @@ mod inner {
 }
 
 mod elsewhere {
-    use flux_ecs2::{Component, ComponentKey};
+    use flux_ecs::{Component, ComponentKey};
 
     /// Reads a KEY from a different module than the one that defined it.
     pub fn position_key_seen_from_here() -> ComponentKey {

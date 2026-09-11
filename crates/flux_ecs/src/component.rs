@@ -1,84 +1,210 @@
-use std::alloc::Layout;
-use std::any::TypeId;
-use std::collections::HashMap;
-use variadics_please::all_tuples;
+use std::hash::{Hash, Hasher};
 
-pub trait Component: 'static {}
+/// Stable, compile-time identity of a component type.
+///
+/// A 128-bit FNV-1a hash of the type's canonical path. Unlike `TypeId`, it is
+/// a true `const`, and `==` is usable in const context (requires the
+/// `const_trait_impl` and `const_cmp` features in the comparing crate).
+#[derive(Copy, Clone, Eq)]
+pub struct ComponentKey(u128);
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ComponentId(pub usize);
-
-#[derive(Debug, Clone)]
-pub struct ComponentInfo {
-    pub id: ComponentId,
-    pub type_id: TypeId,
-    pub layout: Layout,
-    pub name: &'static str,
-    pub drop_fn: unsafe fn(*mut u8),
+const impl PartialEq for ComponentKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
 }
 
-pub trait ComponentBundle {
-    fn register_components(registry: &mut ComponentRegistry) -> Vec<ComponentId>;
-
-    unsafe fn get_component_painters(&self) -> Vec<*const u8>;
+impl Hash for ComponentKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.hash(state);
+    }
 }
 
-macro_rules! impl_component_bundle_for_tuple {
-    ($($T:ident),*) => {
-        #[allow(non_snake_case)]
-        impl<$($T: Component),+> ComponentBundle for ($($T),*) {
-            fn register_components(registry: &mut ComponentRegistry) -> Vec<ComponentId> {
-                vec![$(registry.register::<$T>()),*]
-            }
-
-            unsafe fn get_component_painters(&self) -> Vec<*const u8> {
-                let ($($T),*) = self;
-
-                vec![$($T as *const $T as *const u8),+]
-            }
+impl ComponentKey {
+    /// Computes the key for a type path.
+    ///
+    /// `path` must be the type's defining module path followed by `::` and the
+    /// bare type name, e.g. `my_crate::physics::Position` — no leading `::`,
+    /// no generic arguments. `#[derive(Component)]` produces this form via
+    /// `concat!(module_path!(), "::", "TypeName")`; manual `Component`
+    /// implementations must use the same form.
+    pub const fn from_path(path: &str) -> Self {
+        const FNV_OFFSET_BASIS: u128 = 0x6c62272e07bb014262b821756295c58d;
+        const FNV_PRIME: u128 = 0x0000000001000000000000000000013B;
+        let mut hash = FNV_OFFSET_BASIS;
+        let bytes = path.as_bytes();
+        let mut index = 0;
+        while index < bytes.len() {
+            hash ^= bytes[index] as u128;
+            hash = hash.wrapping_mul(FNV_PRIME);
+            index += 1;
         }
-    };
+        Self(hash)
+    }
 }
 
-all_tuples!(impl_component_bundle_for_tuple, 1, 16, T);
-
-#[derive(Default)]
-pub struct ComponentRegistry {
-    type_to_id: HashMap<TypeId, ComponentId>,
-    infos: Vec<ComponentInfo>,
+impl std::fmt::Debug for ComponentKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ComponentKey({:#034x})", self.0)
+    }
 }
 
-impl ComponentRegistry {
-    pub fn register<T: Component>(&mut self) -> ComponentId {
-        let type_id = TypeId::of::<T>();
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
+/// How a component's values are stored.
+pub enum StorageClass {
+    /// Dense per-archetype columns; the default, fastest to iterate.
+    Chunked,
+    /// Reserved for components on a small, rapidly changing set of entities.
+    SparseSet,
+    /// Zero-sized marker: present in the archetype, occupies no memory.
+    Tag,
+}
 
-        *self.type_to_id.entry(type_id).or_insert_with(|| {
-            let id = ComponentId(self.infos.len());
-            let info = ComponentInfo {
-                id,
-                type_id,
-                layout: Layout::new::<T>(),
-                name: std::any::type_name::<T>(),
-                drop_fn: |ptr| {
-                    unsafe {
-                        std::ptr::drop_in_place(ptr as *mut T);
-                    }
-                },
-            };
+/// A type that can be attached to an entity.
+///
+/// Implement with `#[derive(Component)]`. An entity has at most one value of
+/// each component type.
+pub trait Component: 'static {
+    /// This type's stable identity; see [`ComponentKey`].
+    const KEY: ComponentKey;
+    /// How values of this type are stored.
+    const STORAGE: StorageClass = StorageClass::Chunked;
+    /// Whether this type must stay on the thread that created it.
+    /// Set by `#[component(non_send)]`.
+    const NON_SEND: bool = false;
+}
 
-            self.infos.push(info);
-            id
-        })
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not `Send + Sync`, so it cannot be a component",
+    note = "add `#[component(non_send)]` to pin it to the main thread"
+)]
+/// Marker satisfied by every `Send + Sync` type; asserted by
+/// `#[derive(Component)]` unless the type opts out with
+/// `#[component(non_send)]`.
+pub trait ThreadSafeComponent: Send + Sync {}
+
+#[diagnostic::do_not_recommend]
+impl<T: Send + Sync> ThreadSafeComponent for T {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+    use std::mem::size_of;
+
+    // Published FNV-1a 128-bit test vectors (from the FNV reference test suite).
+    const FNV_OFFSET_BASIS: u128 = 0x6c62272e07bb014262b821756295c58d;
+    const FNV_A: u128 = 0xd228cb696f1a8caf78912b704e4a8964;
+    const FNV_FOOBAR: u128 = 0x343e1662793c64bf6f0d3597ba446f18;
+
+    #[test]
+    fn key_is_16_bytes() {
+        assert_eq!(size_of::<ComponentKey>(), 16);
     }
 
-    #[must_use]
-    pub fn get_id<T: Component>(&self) -> Option<ComponentId> {
-        let type_id = TypeId::of::<T>();
-        self.type_to_id.get(&type_id).copied()
+    #[test]
+    fn empty_path_hashes_to_the_fnv_offset_basis() {
+        // FNV-1a of zero bytes is the offset basis by definition — this pins
+        // the constant and catches an off-by-one in the loop.
+        assert_eq!(ComponentKey::from_path("").0, FNV_OFFSET_BASIS);
     }
 
-    #[must_use]
-    pub fn get_info(&self, id: ComponentId) -> Option<&ComponentInfo> {
-        self.infos.get(id.0)
+    #[test]
+    fn matches_published_fnv1a_128_test_vectors() {
+        // Pins the algorithm as FNV-1a (xor THEN multiply), the prime, and
+        // byte order. A home-grown variant would silently diverge.
+        assert_eq!(ComponentKey::from_path("a").0, FNV_A);
+        assert_eq!(ComponentKey::from_path("foobar").0, FNV_FOOBAR);
+    }
+
+    #[test]
+    fn is_deterministic() {
+        let p = "my_crate::physics::Position";
+        assert_eq!(ComponentKey::from_path(p), ComponentKey::from_path(p));
+    }
+
+    #[test]
+    fn distinct_paths_give_distinct_keys() {
+        // Realistic paths plus adversarial near-misses: case, separator
+        // placement, prefixes, and unicode.
+        let paths = [
+            "",
+            "a",
+            "A",
+            "a::b",
+            "a::B",
+            "ab::c",
+            "a::bc",
+            "a::b::c",
+            "a::b::",
+            "::a::b",
+            "my_crate::Position",
+            "my_crate::position",
+            "my_crate::Position2",
+            "my_crate::physics::Position",
+            "my_crate::render::Position",
+            "my_crate::Velocity",
+            "flux_renderer::instance::SurfaceProviderResource",
+            "flux_renderer::instance::VulkanInstance",
+            "ünïcode::Pösition",
+        ];
+        let keys: HashSet<ComponentKey> = paths.iter().map(|p| ComponentKey::from_path(p)).collect();
+        assert_eq!(keys.len(), paths.len(), "every distinct path must yield a distinct key");
+    }
+
+    #[test]
+    fn is_usable_in_const_context_and_const_comparable() {
+        // Keys must be usable as `const` items and comparable in const context.
+        const POS: ComponentKey = ComponentKey::from_path("x::Position");
+        const VEL: ComponentKey = ComponentKey::from_path("x::Velocity");
+        const _: () = assert!(POS != VEL);
+        const _: () = assert!(POS == ComponentKey::from_path("x::Position"));
+        assert_ne!(POS, VEL);
+    }
+
+    #[test]
+    #[allow(clippy::assertions_on_constants, reason = "deliberately checks compile-time constants")]
+    fn const_equality_agrees_with_runtime_equality() {
+        const A: ComponentKey = ComponentKey::from_path("a");
+        const B: ComponentKey = ComponentKey::from_path("b");
+        const A_EQ_A: bool = A == A;
+        const A_EQ_B: bool = A == B;
+        assert_eq!(A_EQ_A, A == A);
+        assert_eq!(A_EQ_B, A == B);
+        assert!(A_EQ_A);
+        assert!(!A_EQ_B);
+    }
+
+    #[test]
+    fn debug_prints_fixed_width_hex() {
+        let k = ComponentKey::from_path("");
+        assert_eq!(
+            format!("{k:?}"),
+            "ComponentKey(0x6c62272e07bb014262b821756295c58d)"
+        );
+        // Small values are zero-padded to the full 32 hex digits.
+        assert_eq!(format!("{:?}", ComponentKey(1)), format!("ComponentKey({:#034x})", 1u128));
+        assert!(format!("{:?}", ComponentKey(1)).ends_with("0001)"));
+    }
+
+    #[test]
+    #[allow(clippy::assertions_on_constants, reason = "deliberately checks compile-time constants")]
+    fn manual_component_impl_gets_the_documented_defaults() {
+        struct Manual;
+        impl Component for Manual {
+            const KEY: ComponentKey = ComponentKey::from_path("tests::Manual");
+        }
+        assert_eq!(Manual::STORAGE, StorageClass::Chunked);
+        assert!(!Manual::NON_SEND);
+        assert_eq!(Manual::KEY, ComponentKey::from_path("tests::Manual"));
+    }
+
+    #[test]
+    fn component_key_is_hashable_and_copy() {
+        let k = ComponentKey::from_path("k");
+        let copy = k;
+        let mut set = HashSet::new();
+        set.insert(k);
+        assert!(set.contains(&copy));
     }
 }

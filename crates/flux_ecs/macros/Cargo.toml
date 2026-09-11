@@ -1,5 +1,5 @@
 [package]
-name = "flux_ecs2_macros"
+name = "flux_ecs_macros"
 version = "0.1.0"
 edition = "2024"
 

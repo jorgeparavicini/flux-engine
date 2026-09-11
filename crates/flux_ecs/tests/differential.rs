@@ -4,8 +4,8 @@
 //! after every op. Ops address entities by index into the log of every entity
 //! ever created, so stale handles are exercised constantly.
 
-use flux_ecs2::{Component, World};
-use flux_ecs2::reference::RefWorld;
+use flux_ecs::{Component, World};
+use flux_ecs::reference::RefWorld;
 use proptest::prelude::*;
 
 #[derive(Component, Copy, Clone, PartialEq, Debug)]
@@ -53,7 +53,7 @@ fn op_strategy() -> impl Strategy<Value = Op> {
 struct Driver {
     real: World,
     reference: RefWorld,
-    log: Vec<flux_ecs2::Entity>,
+    log: Vec<flux_ecs::Entity>,
 }
 
 impl Driver {
@@ -61,7 +61,7 @@ impl Driver {
         Self { real: World::new(), reference: RefWorld::new(), log: Vec::new() }
     }
 
-    fn pick(&self, i: usize) -> Option<flux_ecs2::Entity> {
+    fn pick(&self, i: usize) -> Option<flux_ecs::Entity> {
         self.log.get(i % self.log.len().max(1)).copied()
     }
 

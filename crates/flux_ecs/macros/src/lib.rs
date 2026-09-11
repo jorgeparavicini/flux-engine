@@ -48,7 +48,7 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
     } else {
         quote! {
             const _: () = {
-                const fn assert_send_sync<T: ::flux_ecs2::ThreadSafeComponent>() {}
+                const fn assert_send_sync<T: ::flux_ecs::ThreadSafeComponent>() {}
                 assert_send_sync::<#name>();
             };
         }
@@ -56,8 +56,8 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
 
     quote! {
         #[automatically_derived]
-        impl ::flux_ecs2::Component for #name {
-            const KEY: ::flux_ecs2::ComponentKey = ::flux_ecs2::ComponentKey::from_path(concat!(module_path!(), "::", #name_str));
+        impl ::flux_ecs::Component for #name {
+            const KEY: ::flux_ecs::ComponentKey = ::flux_ecs::ComponentKey::from_path(concat!(module_path!(), "::", #name_str));
             const NON_SEND: bool = #non_send;
         }
         #assertion
@@ -149,33 +149,33 @@ pub fn derive_system_param(input: TokenStream) -> TokenStream {
     let state_indices = (0..field_names.len()).map(syn::Index::from).collect::<Vec<_>>();
 
     quote! {
-        unsafe impl ::flux_ecs2::SystemParam for #name<#(#erased_self_args),*> {
-            const ACCESS: ::flux_ecs2::AccessList = {
-                let list = ::flux_ecs2::AccessList::EMPTY;
-                #( let list = list.concat(<#erased as ::flux_ecs2::SystemParam>::ACCESS); )*
+        unsafe impl ::flux_ecs::SystemParam for #name<#(#erased_self_args),*> {
+            const ACCESS: ::flux_ecs::AccessList = {
+                let list = ::flux_ecs::AccessList::EMPTY;
+                #( let list = list.concat(<#erased as ::flux_ecs::SystemParam>::ACCESS); )*
                 list
             };
-            type State = (#(<#erased as ::flux_ecs2::SystemParam>::State,)*);
+            type State = (#(<#erased as ::flux_ecs::SystemParam>::State,)*);
             type Item<'w2, 's2> = #name<#(#item_args),*>;
 
-            fn init(world: &mut ::flux_ecs2::World) -> Self::State {
-                (#(<#erased as ::flux_ecs2::SystemParam>::init(world),)*)
+            fn init(world: &mut ::flux_ecs::World) -> Self::State {
+                (#(<#erased as ::flux_ecs::SystemParam>::init(world),)*)
             }
 
             unsafe fn fetch<'w2, 's2>(
                 state: &'s2 mut Self::State,
-                cells: &::flux_ecs2::WorldCells<'w2>,
+                cells: &::flux_ecs::WorldCells<'w2>,
                 version: u64,
             ) -> Self::Item<'w2, 's2> {
                 #name {
                     #(#field_names: unsafe {
-                        <#erased as ::flux_ecs2::SystemParam>::fetch(&mut state.#state_indices, cells, version)
+                        <#erased as ::flux_ecs::SystemParam>::fetch(&mut state.#state_indices, cells, version)
                     },)*
                 }
             }
 
-            fn apply(state: &mut Self::State, world: &mut ::flux_ecs2::World) {
-                #(<#erased as ::flux_ecs2::SystemParam>::apply(&mut state.#state_indices, world);)*
+            fn apply(state: &mut Self::State, world: &mut ::flux_ecs::World) {
+                #(<#erased as ::flux_ecs::SystemParam>::apply(&mut state.#state_indices, world);)*
             }
         }
     }

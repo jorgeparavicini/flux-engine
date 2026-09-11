@@ -2,7 +2,7 @@
 //! spread across 1, 8, 64, and 512 archetypes.
 
 use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
-use flux_ecs2::{Component, Entity, QueryState, World};
+use flux_ecs::{Component, Entity, QueryState, World};
 use std::hint::black_box;
 
 const N: u64 = 100_000;

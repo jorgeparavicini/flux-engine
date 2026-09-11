@@ -2,7 +2,7 @@
 //! renderer uses must be expressible and runnable. Types are stand-ins; the
 //! signatures are faithful (parameter kinds, counts, return types).
 
-use flux_ecs2::{
+use flux_ecs::{
     Commands, Component, Query, Schedule, Single, System, SystemLabel, SystemParam, World,
 };
 use std::rc::Rc;
@@ -218,7 +218,7 @@ fn derived_parameter_structs_behave_like_flat_ones() {
     schedule.run(&mut world);
     schedule.run(&mut world);
     assert_eq!(world.singleton::<SyncObjects>().unwrap().frames_rendered, 2);
-    let mut meshes = flux_ecs2::QueryState::<&VulkanMesh>::new();
+    let mut meshes = flux_ecs::QueryState::<&VulkanMesh>::new();
     let n: usize = world.query(&mut meshes).chunks().map(|m| m.len()).sum();
     assert_eq!(n, 2, "deferred spawns from the derived Commands field applied");
 }
@@ -289,7 +289,7 @@ fn command_spawns_become_visible_to_later_systems() {
 #[test]
 fn command_spawn_ids_are_usable_immediately() {
     #[derive(Component, Default)]
-    struct Probe(Option<flux_ecs2::Entity>);
+    struct Probe(Option<flux_ecs::Entity>);
 
     fn spawner(mut commands: Commands, mut probe: Single<&mut Probe>) {
         let e = commands.spawn((VulkanMesh(1),));
@@ -311,7 +311,7 @@ fn command_spawn_ids_are_usable_immediately() {
 #[test]
 fn reserved_spawns_survive_interleaved_frees() {
     #[derive(Component, Default)]
-    struct Probe(Option<flux_ecs2::Entity>);
+    struct Probe(Option<flux_ecs::Entity>);
 
     // remove_singleton frees an entity slot mid-queue; the reserved spawn
     // after it must still land on its predicted id.
@@ -341,7 +341,7 @@ fn a_failed_systems_commands_are_discarded() {
         Err(MockVkError)
     }
     let mut world = World::new();
-    let mut system = flux_ecs2::IntoSystem::into_system(tries);
+    let mut system = flux_ecs::IntoSystem::into_system(tries);
     let panicked = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         system.run(&mut world);
     }));
@@ -353,7 +353,7 @@ fn a_failed_systems_commands_are_discarded() {
     fn succeeds(mut commands: Commands) {
         commands.insert_singleton(Device(2));
     }
-    let mut ok = flux_ecs2::IntoSystem::into_system(succeeds);
+    let mut ok = flux_ecs::IntoSystem::into_system(succeeds);
     ok.run(&mut world);
     assert_eq!(world.singleton::<Device>(), Some(&Device(2)));
     assert_eq!(world.len(), 1, "exactly the successful system's effects");

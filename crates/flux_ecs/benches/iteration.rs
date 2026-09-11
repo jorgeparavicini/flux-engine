@@ -2,7 +2,7 @@
 //! The ratio between the two is the number that matters.
 
 use criterion::{Criterion, criterion_group, criterion_main};
-use flux_ecs2::{Component, QueryState, World};
+use flux_ecs::{Component, QueryState, World};
 use std::hint::black_box;
 
 const N: u64 = 1_000_000;

@@ -3,9 +3,28 @@ name = "flux_ecs"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+reference = []
+
 [dependencies]
-variadics_please = "1.1.0"
-log = "0.4.27"
+flux_ecs_macros = { path = "./macros" }
+
+[dev-dependencies]
+proptest = { workspace = true }
+criterion = { workspace = true }
+trybuild = { workspace = true }
+flux_ecs = { path = ".", features = ["reference"] }
 
 [lints]
 workspace = true
+
+[[bench]]
+name = "baseline"
+harness = false
+[[bench]]
+name = "iteration"
+harness = false
+
+[[bench]]
+name = "fragmentation"
+harness = false
