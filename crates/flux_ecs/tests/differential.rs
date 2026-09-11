@@ -222,7 +222,7 @@ fn one_hundred_thousand_world_ops() {
     for step in 0..OPS {
         let r = next();
         let i = (r >> 32) as usize;
-        let op = match r % 11 {
+        let op = match r % 14 {
             0 | 1 => Op::Spawn(Shape::Empty),
             2 | 3 => Op::Spawn(Shape::Both(r as u32, (r >> 16) as i64)),
             4 => Op::Spawn(Shape::A(r as u32)),
@@ -230,7 +230,9 @@ fn one_hundred_thousand_world_ops() {
             6 | 7 => Op::InsertA(i, r as u32),
             8 => Op::InsertB(i, (r >> 8) as i64),
             9 => Op::RemoveA(i),
-            _ => Op::RemoveB(i),
+            10 => Op::RemoveB(i),
+            11 | 12 => Op::Relate(i, (r >> 48) as usize),
+            _ => Op::Unrelate(i),
         };
         d.apply(&op).unwrap_or_else(|e| panic!("divergence at step {step}: {e}"));
         if step % 64 == 0 {
