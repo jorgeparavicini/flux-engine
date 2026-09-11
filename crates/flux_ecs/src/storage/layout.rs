@@ -206,7 +206,7 @@ mod tests {
         let mut out: Vec<ComponentId> = keys
             .iter()
             .map(|k| {
-                (0..r.len() as u32)
+                (0..r.len() as u64)
                     .map(ComponentId)
                     .find(|id| r.info(*id).key == *k)
                     .expect("registered")

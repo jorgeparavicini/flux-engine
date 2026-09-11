@@ -31,7 +31,7 @@ pub(crate) type KeyMap<V> = HashMap<ComponentKey, V, BuildHasherDefault<KeyHashe
 /// registry produced it. For a world-independent identity use
 /// [`ComponentKey`].
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ComponentId(pub(crate) u32);
+pub struct ComponentId(pub(crate) u64);
 
 pub(crate) struct ComponentInfo {
     pub key: ComponentKey,
@@ -87,7 +87,7 @@ impl Registry {
             "tag components must be zero-sized"
         );
         let id =
-            ComponentId(u32::try_from(self.infos.len()).expect("component id space exhausted"));
+            ComponentId(u64::try_from(self.infos.len()).expect("component id space exhausted"));
         self.infos.push(ComponentInfo {
             key: T::KEY,
             name: std::any::type_name::<T>(),
@@ -213,7 +213,7 @@ mod tests {
 
     #[test]
     fn component_id_is_small_and_orderable() {
-        assert_eq!(size_of::<ComponentId>(), 4);
+        assert_eq!(size_of::<ComponentId>(), 8);
         let mut ids = [ComponentId(2), ComponentId(0), ComponentId(1)];
         ids.sort();
         assert_eq!(ids, [ComponentId(0), ComponentId(1), ComponentId(2)]);
