@@ -1,4 +1,4 @@
-# flux_ecs2 — deferred performance work
+# flux_ecs — deferred performance work
 
 Improvements that are known, designed-for, and deliberately not built yet.
 Each entry names its trigger — the observation that should cause the work —
