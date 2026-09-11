@@ -181,17 +181,14 @@ impl<D: SingleDataMut> DerefMut for Single<'_, D> {
 
 /// Walks `state`'s matched chunks under a grant minted from `declared` — the
 /// parameter's own declaration, so an under-declared access fails the fetch.
-///
-/// # Panics
-///
-/// Unless exactly one row exists across all matched chunks.
-fn single_row<'w, D, F>(
+/// `None` when no entity matches; panics when more than one does.
+fn unique_row<'w, D, F>(
     state: &mut QueryState<D, F>,
     cells: &WorldCells<'w>,
     version: u64,
     declared: AccessList,
     name: &str,
-) -> D::Columns<'w>
+) -> Option<D::Columns<'w>>
 where
     D: QueryData + 'static,
     F: QueryFilter + 'static,
@@ -216,7 +213,8 @@ where
         }
     }
     match (found, count) {
-        (Some(columns), 1) => columns,
+        (Some(columns), 1) => Some(columns),
+        (_, 0) => None,
         (_, n) => panic!("expected exactly one entity with a '{name}', found {n}"),
     }
 }
@@ -235,13 +233,8 @@ unsafe impl<T: Component> SystemParam for Single<'_, &T> {
         cells: &WorldCells<'w>,
         version: u64,
     ) -> Self::Item<'w, 's> {
-        let columns = single_row(
-            state,
-            cells,
-            version,
-            Self::ACCESS,
-            std::any::type_name::<T>(),
-        );
+        let columns = unique_row(state, cells, version, Self::ACCESS, std::any::type_name::<T>())
+            .unwrap_or_else(|| panic!("expected exactly one entity with a '{}', found none", std::any::type_name::<T>()));
         Single { item: &columns[0] }
     }
 }
@@ -260,17 +253,52 @@ unsafe impl<T: Component> SystemParam for Single<'_, &mut T> {
         cells: &WorldCells<'w>,
         version: u64,
     ) -> Self::Item<'w, 's> {
-        let columns = single_row(
-            state,
-            cells,
-            version,
-            Self::ACCESS,
-            std::any::type_name::<T>(),
-        );
+        let columns = unique_row(state, cells, version, Self::ACCESS, std::any::type_name::<T>())
+            .unwrap_or_else(|| panic!("expected exactly one entity with a '{}', found none", std::any::type_name::<T>()));
         #[allow(clippy::into_iter_without_iter, clippy::explicit_into_iter_loop)]
         #[allow(clippy::useless_conversion, reason = "into_iter consumes the slice reference, keeping the world lifetime; iter_mut would reborrow locally")]
         let row = IntoIterator::into_iter(columns).next().expect("exactly one row");
         Single { item: row }
+    }
+}
+
+unsafe impl<'a, T: Component> SystemParam for Option<Single<'a, &T>> {
+    const ACCESS: AccessList = AccessList::read(T::KEY);
+    type State = QueryState<&'static T>;
+    type Item<'w, 's> = Option<Single<'w, &'w T>>;
+
+    fn init(_world: &mut World) -> Self::State {
+        QueryState::new()
+    }
+
+    unsafe fn fetch<'w, 's>(
+        state: &'s mut Self::State,
+        cells: &WorldCells<'w>,
+        version: u64,
+    ) -> Self::Item<'w, 's> {
+        let columns = unique_row(state, cells, version, Self::ACCESS, std::any::type_name::<T>())?;
+        Some(Single { item: &columns[0] })
+    }
+}
+
+unsafe impl<'a, T: Component> SystemParam for Option<Single<'a, &mut T>> {
+    const ACCESS: AccessList = AccessList::write(T::KEY);
+    type State = QueryState<&'static mut T>;
+    type Item<'w, 's> = Option<Single<'w, &'w mut T>>;
+
+    fn init(_world: &mut World) -> Self::State {
+        QueryState::new()
+    }
+
+    unsafe fn fetch<'w, 's>(
+        state: &'s mut Self::State,
+        cells: &WorldCells<'w>,
+        version: u64,
+    ) -> Self::Item<'w, 's> {
+        let columns = unique_row(state, cells, version, Self::ACCESS, std::any::type_name::<T>())?;
+        #[allow(clippy::useless_conversion, reason = "into_iter consumes the slice reference, keeping the world lifetime")]
+        let row = IntoIterator::into_iter(columns).next().expect("unique row");
+        Some(Single { item: row })
     }
 }
 
@@ -596,6 +624,22 @@ mod tests {
         let mut system = read.into_system();
         world.run(&mut system);
         assert_eq!(world.get::<A>(probe), Some(&A(9)));
+    }
+
+    #[test]
+    fn optional_single_is_none_when_absent_and_some_when_present() {
+        fn reads(time: Option<Single<&Time>>, mut out: Single<&mut A>) {
+            out.0 = time.map_or(999, |t| t.0);
+        }
+        let mut world = World::new();
+        world.insert_singleton(A(0));
+        let mut system = reads.into_system();
+        world.run(&mut system);
+        assert_eq!(world.singleton::<A>().unwrap().0, 999, "absent → None");
+
+        world.insert_singleton(Time(7));
+        world.run(&mut system);
+        assert_eq!(world.singleton::<A>().unwrap().0, 7, "present → Some");
     }
 
     #[test]
