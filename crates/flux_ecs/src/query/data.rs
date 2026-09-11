@@ -4,7 +4,9 @@ use crate::registry::Registry;
 use crate::storage::chunks::{ChunkId, Chunks};
 use crate::storage::layout::ArchetypeLayout;
 use crate::storage::ops;
+use crate::relation::Relation;
 use crate::{Component, ComponentId, ComponentKey, Entity};
+use std::marker::PhantomData;
 
 /// One chunk of one archetype, as a query sees it.
 #[derive(Copy, Clone)]
@@ -223,6 +225,45 @@ unsafe impl QueryData for Entity {
 
     fn row<'w, 'a>(columns: &'a mut Self::Columns<'w>, row: usize) -> Self::Item<'a> {
         columns[row]
+    }
+}
+
+/// Yields the target of each row's `R` relation.
+///
+/// Matches archetypes that carry an `(R, *)` pair. The target is fixed for a
+/// whole archetype, so every row in a chunk yields the same entity; a query
+/// like `(Entity, Related<ChildOf>)` walks every child paired with its parent.
+pub struct Related<R: Relation>(PhantomData<R>);
+
+unsafe impl<R: Relation> QueryData for Related<R> {
+    const ACCESS: AccessList = AccessList::EMPTY;
+    type Columns<'w> = Entity;
+    type Plan = Entity;
+    type Item<'a> = Entity;
+
+    fn matches(signature: &[ComponentId], reg: &Registry) -> bool {
+        signature
+            .iter()
+            .any(|&id| reg.info(id).relation.is_some_and(|r| r.relation == R::KEY))
+    }
+
+    fn plan(layout: &ArchetypeLayout, reg: &Registry) -> Option<Self::Plan> {
+        layout.components.iter().find_map(|&id| {
+            let rel = reg.info(id).relation?;
+            (rel.relation == R::KEY).then_some(rel.target)
+        })
+    }
+
+    unsafe fn fetch<'w>(
+        _view: &ChunkView<'w>,
+        plan: Self::Plan,
+        _grant: &mut AccessGrant,
+    ) -> Option<Self::Columns<'w>> {
+        Some(plan)
+    }
+
+    fn row<'w, 'a>(columns: &'a mut Self::Columns<'w>, _row: usize) -> Self::Item<'a> {
+        *columns
     }
 }
 

@@ -48,6 +48,6 @@ pub use schedule::{Schedule, SystemLabel};
 pub use access::AccessList;
 pub use system::{Commands, IntoSystem, Local, Single, System, SystemParam, WorldCells};
 pub use world::World;
-pub use query::{Added, Changed, Query, QueryFilter, QueryState, With, Without};
+pub use query::{Added, Changed, Query, QueryFilter, QueryState, Related, With, Without};
 pub use flux_ecs_macros::Component;
 pub use flux_ecs_macros::SystemParam;

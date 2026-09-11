@@ -218,6 +218,19 @@ impl World {
         self.registry.info(id).relation.map(|r| r.target)
     }
 
+    /// Every entity related to `target` under `R`, in ascending order. For
+    /// `ChildOf` these are `target`'s children.
+    pub fn related_to<R: Relation>(&self, target: Entity) -> Vec<Entity> {
+        match self.registry.lookup_pair(R::KEY, target) {
+            Some(id) => {
+                let mut holders = self.holders_of(id);
+                holders.sort_unstable();
+                holders
+            }
+            None => Vec::new(),
+        }
+    }
+
     /// The signature id of `entity`'s `R` pair, if present.
     fn relation_id_on<R: Relation>(&self, entity: Entity) -> Option<ComponentId> {
         let slot = self.entities.slot(entity)?;
@@ -1517,5 +1530,80 @@ mod tests {
         assert!(world.despawn(a));
         assert!(!world.is_alive(a));
         assert!(!world.is_alive(b), "the cycle guard still despawns the reachable set");
+    }
+
+    #[test]
+    fn related_query_yields_each_childs_parent() {
+        use crate::Related;
+        let mut world = World::new();
+        let p1 = world.spawn((A(1),));
+        let p2 = world.spawn((A(2),));
+        let c1 = world.spawn((A(10),));
+        let c2 = world.spawn((A(11),));
+        let c3 = world.spawn((A(12),));
+        world.relate::<ChildOf>(c1, p1);
+        world.relate::<ChildOf>(c2, p1);
+        world.relate::<ChildOf>(c3, p2);
+
+        let mut state = QueryState::<(Entity, Related<ChildOf>)>::new();
+        let mut pairs: Vec<(Entity, Entity)> = Vec::new();
+        world
+            .query(&mut state)
+            .for_each(|(child, parent)| pairs.push((child, parent)));
+        pairs.sort();
+
+        let mut expected = vec![(c1, p1), (c2, p1), (c3, p2)];
+        expected.sort();
+        assert_eq!(pairs, expected, "only children match, each paired with its parent");
+    }
+
+    #[test]
+    fn related_query_reflects_relate_and_unrelate() {
+        use crate::Related;
+        let mut world = World::new();
+        let parent = world.spawn((A(1),));
+        let child = world.spawn((A(2),));
+
+        let count = |world: &mut World, state: &mut QueryState<(Entity, Related<ChildOf>)>| {
+            let mut n = 0;
+            world.query(state).for_each(|_| n += 1);
+            n
+        };
+        let mut state = QueryState::<(Entity, Related<ChildOf>)>::new();
+        assert_eq!(count(&mut world, &mut state), 0);
+        world.relate::<ChildOf>(child, parent);
+        assert_eq!(count(&mut world, &mut state), 1, "new archetype picked up by the same state");
+        world.unrelate::<ChildOf>(child);
+        assert_eq!(count(&mut world, &mut state), 0);
+    }
+
+    #[test]
+    fn related_to_lists_the_children() {
+        let mut world = World::new();
+        let parent = world.spawn((A(1),));
+        let c1 = world.spawn((A(2),));
+        let c2 = world.spawn((A(3),));
+        let unrelated = world.spawn((A(4),));
+        world.relate::<ChildOf>(c1, parent);
+        world.relate::<ChildOf>(c2, parent);
+
+        let mut expected = vec![c1, c2];
+        expected.sort_unstable();
+        assert_eq!(world.related_to::<ChildOf>(parent), expected);
+        assert!(world.related_to::<ChildOf>(unrelated).is_empty());
+    }
+
+    #[test]
+    fn related_query_composes_with_component_data() {
+        use crate::Related;
+        let mut world = World::new();
+        let parent = world.spawn((A(1),));
+        let child = world.spawn((A(99),));
+        world.relate::<ChildOf>(child, parent);
+
+        let mut state = QueryState::<(&A, Related<ChildOf>)>::new();
+        let mut seen: Vec<(u64, Entity)> = Vec::new();
+        world.query(&mut state).for_each(|(a, p)| seen.push((a.0, p)));
+        assert_eq!(seen, vec![(99, parent)]);
     }
 }
