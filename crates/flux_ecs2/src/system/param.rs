@@ -1,7 +1,8 @@
 use crate::access::AccessList;
+use crate::entity::Entity;
 use crate::grant::AccessGrant;
 use crate::query::data::QueryData;
-use crate::world::WorldCells;
+pub use crate::world::WorldCells;
 use crate::{Component, Query, QueryFilter, QueryState, World};
 use std::ops::{Deref, DerefMut};
 
@@ -38,6 +39,14 @@ pub unsafe trait SystemParam {
         cells: &WorldCells<'w>,
         version: u64,
     ) -> Self::Item<'w, 's>;
+
+    /// Applies deferred work after the system ran. Most parameters have none.
+    #[allow(unused_variables)]
+    fn apply(state: &mut Self::State, world: &mut World) {}
+
+    /// Drops deferred work after the system failed.
+    #[allow(unused_variables)]
+    fn discard(state: &mut Self::State) {}
 }
 
 unsafe impl<D, F> SystemParam for Query<'_, '_, D, F>
@@ -112,19 +121,21 @@ pub trait SingleData {
     type Target: Component;
     type Ref<'w>;
 
-    fn as_ref<'w>(r: &'w Self::Ref<'_>) -> &'w Self::Target;
+    /// Projects the stored reference to the target component.
+    fn target<'w>(r: &'w Self::Ref<'_>) -> &'w Self::Target;
 }
 
 /// The mutable subset of [`SingleData`].
 pub trait SingleDataMut: SingleData {
-    fn as_mut<'w>(r: &'w mut Self::Ref<'_>) -> &'w mut Self::Target;
+    /// Projects the stored reference to the target component, mutably.
+    fn target_mut<'w>(r: &'w mut Self::Ref<'_>) -> &'w mut Self::Target;
 }
 
 impl<T: Component> SingleData for &T {
     type Target = T;
     type Ref<'w> = &'w T;
 
-    fn as_ref<'w>(r: &'w Self::Ref<'_>) -> &'w Self::Target {
+    fn target<'w>(r: &'w Self::Ref<'_>) -> &'w Self::Target {
         r
     }
 }
@@ -133,13 +144,13 @@ impl<T: Component> SingleData for &mut T {
     type Target = T;
     type Ref<'w> = &'w mut T;
 
-    fn as_ref<'w>(r: &'w Self::Ref<'_>) -> &'w Self::Target {
+    fn target<'w>(r: &'w Self::Ref<'_>) -> &'w Self::Target {
         r
     }
 }
 
 impl<T: Component> SingleDataMut for &mut T {
-    fn as_mut<'w>(r: &'w mut Self::Ref<'_>) -> &'w mut Self::Target {
+    fn target_mut<'w>(r: &'w mut Self::Ref<'_>) -> &'w mut Self::Target {
         r
     }
 }
@@ -158,13 +169,13 @@ impl<D: SingleData> Deref for Single<'_, D> {
     type Target = D::Target;
 
     fn deref(&self) -> &Self::Target {
-        D::as_ref(&self.item)
+        D::target(&self.item)
     }
 }
 
 impl<D: SingleDataMut> DerefMut for Single<'_, D> {
     fn deref_mut(&mut self) -> &mut Self::Target {
-        D::as_mut(&mut self.item)
+        D::target_mut(&mut self.item)
     }
 }
 
@@ -263,6 +274,234 @@ unsafe impl<T: Component> SystemParam for Single<'_, &mut T> {
     }
 }
 
+
+
+/// Deferred world mutations, applied after the system runs.
+///
+/// A system's world view is shared, so it cannot change world structure
+/// directly. `Commands` queues the mutations; they apply in queue order when
+/// the system returns successfully, before the next system runs. A system
+/// that returns an error has no effects: its queue is dropped.
+///
+/// Spawned entities get their id immediately (reserved, alive once the
+/// commands apply). A system takes at most one `Commands`; a second one
+/// panics at apply time with a stale-reservation report.
+pub struct Commands<'s> {
+    queue: &'s mut CommandQueue,
+}
+
+/// One queued world mutation.
+enum Command {
+    Spawn {
+        entity: Entity,
+        bundle: Box<dyn AnyBundle>,
+    },
+    Despawn {
+        entity: Entity,
+    },
+    Insert {
+        entity: Entity,
+        value: Box<dyn AnyComponent>,
+    },
+    Remove {
+        entity: Entity,
+        remove: fn(&mut World, Entity),
+    },
+    InsertSingleton {
+        value: Box<dyn AnyComponent>,
+    },
+    RemoveSingleton {
+        remove: fn(&mut World),
+    },
+}
+
+/// Type-erased bundle payload of a queued spawn.
+trait AnyBundle {
+    fn spawn_reserved(self: Box<Self>, world: &mut World, entity: Entity);
+}
+
+impl<B: crate::Bundle + 'static> AnyBundle for B {
+    fn spawn_reserved(self: Box<Self>, world: &mut World, entity: Entity) {
+        world.spawn_reserved(entity, *self);
+    }
+}
+
+/// Type-erased component payload of a queued insert.
+trait AnyComponent {
+    fn insert_into(self: Box<Self>, world: &mut World, entity: Entity);
+    fn insert_singleton_into(self: Box<Self>, world: &mut World);
+}
+
+impl<T: Component> AnyComponent for T {
+    fn insert_into(self: Box<Self>, world: &mut World, entity: Entity) {
+        world.insert(entity, *self);
+    }
+
+    fn insert_singleton_into(self: Box<Self>, world: &mut World) {
+        world.insert_singleton(*self);
+    }
+}
+
+/// Queued world mutations of one system, with its entity reservations.
+#[derive(Default)]
+pub struct CommandQueue {
+    commands: Vec<Command>,
+    /// Predicted allocations, oldest last; refreshed at every fetch.
+    predicted: Vec<Entity>,
+    /// First fresh index past the allocator's slots at fetch time.
+    fresh: u32,
+}
+
+impl CommandQueue {
+    fn reserve(&mut self) -> Entity {
+        self.predicted.pop().unwrap_or_else(|| {
+            let entity = Entity::fresh(self.fresh);
+            self.fresh += 1;
+            entity
+        })
+    }
+}
+
+impl Commands<'_> {
+    /// Spawns an entity with the bundle's components, returning its id.
+    ///
+    /// The id is usable immediately — for instance in further commands — but
+    /// the entity is alive only once the commands apply.
+    pub fn spawn<B: crate::Bundle + 'static>(&mut self, bundle: B) -> Entity {
+        let entity = self.queue.reserve();
+        self.queue.commands.push(Command::Spawn {
+            entity,
+            bundle: Box::new(bundle),
+        });
+        entity
+    }
+
+    /// Despawns `entity`, dropping all of its components.
+    pub fn despawn(&mut self, entity: Entity) {
+        self.queue.commands.push(Command::Despawn { entity });
+    }
+
+    /// Adds `value` to `entity`, or replaces the entity's existing `T`.
+    pub fn insert<T: Component>(&mut self, entity: Entity, value: T) {
+        self.queue.commands.push(Command::Insert {
+            entity,
+            value: Box::new(value),
+        });
+    }
+
+    /// Takes `T` off `entity`, dropping it.
+    pub fn remove<T: Component>(&mut self, entity: Entity) {
+        fn remove<T: Component>(world: &mut World, entity: Entity) {
+            world.remove::<T>(entity);
+        }
+        self.queue.commands.push(Command::Remove {
+            entity,
+            remove: remove::<T>,
+        });
+    }
+
+    /// Spawns or replaces the world's single `T`.
+    pub fn insert_singleton<T: Component>(&mut self, value: T) {
+        self.queue.commands.push(Command::InsertSingleton {
+            value: Box::new(value),
+        });
+    }
+
+    /// Removes the world's single `T`, despawning its entity.
+    pub fn remove_singleton<T: Component>(&mut self) {
+        fn remove<T: Component>(world: &mut World) {
+            world.remove_singleton::<T>();
+        }
+        self.queue.commands.push(Command::RemoveSingleton { remove: remove::<T> });
+    }
+}
+
+unsafe impl SystemParam for Commands<'_> {
+    const ACCESS: AccessList = AccessList::EMPTY;
+    type State = CommandQueue;
+    type Item<'w, 's> = Commands<'s>;
+
+    fn init(_world: &mut World) -> Self::State {
+        CommandQueue::default()
+    }
+
+    unsafe fn fetch<'w, 's>(
+        state: &'s mut Self::State,
+        cells: &WorldCells<'w>,
+        _version: u64,
+    ) -> Self::Item<'w, 's> {
+        let (predicted, fresh) = cells.entities.reservation_snapshot();
+        state.predicted = predicted;
+        state.fresh = fresh;
+        Commands { queue: state }
+    }
+
+    fn apply(state: &mut Self::State, world: &mut World) {
+        for command in state.commands.drain(..) {
+            match command {
+                Command::Spawn { entity, bundle } => bundle.spawn_reserved(world, entity),
+                Command::Despawn { entity } => {
+                    world.despawn(entity);
+                }
+                Command::Insert { entity, value } => value.insert_into(world, entity),
+                Command::Remove { entity, remove } => remove(world, entity),
+                Command::InsertSingleton { value } => value.insert_singleton_into(world),
+                Command::RemoveSingleton { remove } => remove(world),
+            }
+        }
+    }
+
+    fn discard(state: &mut Self::State) {
+        state.commands.clear();
+    }
+}
+
+// Tuples of parameters are themselves parameters, so related requests can be
+// grouped and destructured: `fn sys(gpu: (Single<&Device>, Single<&Swapchain>))`.
+// SAFETY: the tuple's ACCESS is the concatenation of its members', so it
+// declares exactly what the members fetch.
+macro_rules! tuple_system_param {
+    ($(($p:ident, $s:ident)),+) => {
+        unsafe impl<$($p: SystemParam),+> SystemParam for ($($p,)+) {
+            const ACCESS: AccessList = {
+                let list = AccessList::EMPTY;
+                $( let list = list.concat($p::ACCESS); )+
+                list
+            };
+            type State = ($($p::State,)+);
+            type Item<'w, 's> = ($($p::Item<'w, 's>,)+);
+
+            fn init(world: &mut World) -> Self::State {
+                ($($p::init(world),)+)
+            }
+
+            #[allow(non_snake_case)]
+            unsafe fn fetch<'w, 's>(
+                state: &'s mut Self::State,
+                cells: &WorldCells<'w>,
+                version: u64,
+            ) -> Self::Item<'w, 's> {
+                let ($($s,)+) = state;
+                ($( unsafe { $p::fetch($s, cells, version) },)+)
+            }
+
+            #[allow(non_snake_case)]
+            fn apply(state: &mut Self::State, world: &mut World) {
+                let ($($s,)+) = state;
+                $( $p::apply($s, world); )+
+            }
+        }
+    };
+}
+
+tuple_system_param!((P1, s1));
+tuple_system_param!((P1, s1), (P2, s2));
+tuple_system_param!((P1, s1), (P2, s2), (P3, s3));
+tuple_system_param!((P1, s1), (P2, s2), (P3, s3), (P4, s4));
+tuple_system_param!((P1, s1), (P2, s2), (P3, s3), (P4, s4), (P5, s5));
+tuple_system_param!((P1, s1), (P2, s2), (P3, s3), (P4, s4), (P5, s5), (P6, s6));
+tuple_system_param!((P1, s1), (P2, s2), (P3, s3), (P4, s4), (P5, s5), (P6, s6), (P7, s7));
+tuple_system_param!((P1, s1), (P2, s2), (P3, s3), (P4, s4), (P5, s5), (P6, s6), (P7, s7), (P8, s8));
 
 #[cfg(test)]
 mod tests {

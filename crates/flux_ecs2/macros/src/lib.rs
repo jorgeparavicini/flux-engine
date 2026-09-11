@@ -64,3 +64,120 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
     }
         .into()
 }
+
+/// Derives `SystemParam` for a struct of system parameters, so related
+/// requests can be grouped under named fields.
+///
+/// The struct's lifetimes must be named `'w` (world data) and/or `'s`
+/// (system state), in that order, and every field must itself be a system
+/// parameter written with those lifetimes:
+///
+/// ```ignore
+/// #[derive(SystemParam)]
+/// struct Gpu<'w> {
+///     device: Single<'w, &'w Device>,
+///     swapchain: Single<'w, &'w Swapchain>,
+/// }
+/// ```
+///
+/// Generic type parameters are not supported.
+#[proc_macro_derive(SystemParam)]
+pub fn derive_system_param(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
+
+    let mut lifetimes: Vec<String> = Vec::new();
+    for param in &input.generics.params {
+        match param {
+            syn::GenericParam::Lifetime(l) => lifetimes.push(l.lifetime.ident.to_string()),
+            other => {
+                return syn::Error::new_spanned(
+                    other,
+                    "`#[derive(SystemParam)]` supports lifetime parameters only",
+                )
+                .to_compile_error()
+                .into();
+            }
+        }
+    }
+    let allowed = [vec![], vec!["w".to_string()], vec!["s".to_string()], vec!["w".to_string(), "s".to_string()]];
+    if !allowed.contains(&lifetimes) {
+        return syn::Error::new_spanned(
+            &input.generics,
+            "`#[derive(SystemParam)]` requires lifetimes named 'w and/or 's, in that order",
+        )
+        .to_compile_error()
+        .into();
+    }
+
+    let syn::Data::Struct(data) = &input.data else {
+        return syn::Error::new_spanned(&input, "`#[derive(SystemParam)]` requires a struct")
+            .to_compile_error()
+            .into();
+    };
+    let syn::Fields::Named(fields) = &data.fields else {
+        return syn::Error::new_spanned(&input, "`#[derive(SystemParam)]` requires named fields")
+            .to_compile_error()
+            .into();
+    };
+
+    /// Rewrites every lifetime in a type to `'static`: parameter access,
+    /// state, and initialization are lifetime-independent.
+    struct Erase;
+    impl syn::visit_mut::VisitMut for Erase {
+        fn visit_lifetime_mut(&mut self, lifetime: &mut syn::Lifetime) {
+            lifetime.ident = syn::Ident::new("static", lifetime.ident.span());
+        }
+    }
+
+    let field_names: Vec<_> = fields.named.iter().map(|f| f.ident.clone().unwrap()).collect();
+    let erased: Vec<syn::Type> = fields
+        .named
+        .iter()
+        .map(|f| {
+            let mut ty = f.ty.clone();
+            syn::visit_mut::VisitMut::visit_type_mut(&mut Erase, &mut ty);
+            ty
+        })
+        .collect();
+
+    // Self, lifetime-erased, for the impl header; Item substitutes fresh ones.
+    let erased_self_args = lifetimes.iter().map(|_| quote!('_));
+    let item_args = lifetimes.iter().map(|l| {
+        if l == "w" { quote!('w2) } else { quote!('s2) }
+    });
+    let state_indices = (0..field_names.len()).map(syn::Index::from).collect::<Vec<_>>();
+
+    quote! {
+        unsafe impl ::flux_ecs2::SystemParam for #name<#(#erased_self_args),*> {
+            const ACCESS: ::flux_ecs2::AccessList = {
+                let list = ::flux_ecs2::AccessList::EMPTY;
+                #( let list = list.concat(<#erased as ::flux_ecs2::SystemParam>::ACCESS); )*
+                list
+            };
+            type State = (#(<#erased as ::flux_ecs2::SystemParam>::State,)*);
+            type Item<'w2, 's2> = #name<#(#item_args),*>;
+
+            fn init(world: &mut ::flux_ecs2::World) -> Self::State {
+                (#(<#erased as ::flux_ecs2::SystemParam>::init(world),)*)
+            }
+
+            unsafe fn fetch<'w2, 's2>(
+                state: &'s2 mut Self::State,
+                cells: &::flux_ecs2::WorldCells<'w2>,
+                version: u64,
+            ) -> Self::Item<'w2, 's2> {
+                #name {
+                    #(#field_names: unsafe {
+                        <#erased as ::flux_ecs2::SystemParam>::fetch(&mut state.#state_indices, cells, version)
+                    },)*
+                }
+            }
+
+            fn apply(state: &mut Self::State, world: &mut ::flux_ecs2::World) {
+                #(<#erased as ::flux_ecs2::SystemParam>::apply(&mut state.#state_indices, world);)*
+            }
+        }
+    }
+    .into()
+}

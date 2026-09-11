@@ -7,6 +7,14 @@ pub struct Entity {
 }
 
 impl Entity {
+    /// The entity a fresh slot at `index` will produce: generation 1.
+    pub(crate) fn fresh(index: u32) -> Entity {
+        Entity {
+            index,
+            generation: NonZeroU32::MIN,
+        }
+    }
+
     pub(crate) const fn index(&self) -> u32 {
         self.index
     }
@@ -91,6 +99,66 @@ impl Entities {
             .filter(|slot| slot.generation == entity.generation)
     }
     
+    /// The entities `alloc` would produce next, oldest prediction last
+    /// (callers pop from the end), plus the first fresh index past the slots.
+    ///
+    /// Predictions hold while no allocation or deallocation happens other
+    /// than redeeming them in order via [`alloc_specific`](Self::alloc_specific).
+    pub(crate) fn reservation_snapshot(&self) -> (Vec<Entity>, u32) {
+        let predicted: Vec<Entity> = self
+            .free
+            .iter()
+            .map(|&index| Entity {
+                index,
+                generation: Self::next_generation(self.slots[index as usize].generation),
+            })
+            .collect();
+        let fresh = u32::try_from(self.slots.len()).expect("entity index space exhausted");
+        (predicted, fresh)
+    }
+
+    /// Allocates exactly `entity`, which must be a prediction from
+    /// [`reservation_snapshot`](Self::reservation_snapshot): either a dead
+    /// slot whose next generation matches, or the next fresh index.
+    ///
+    /// # Panics
+    ///
+    /// If the prediction is stale — the slot is alive, the generation does
+    /// not match, or the index skips ahead of the slots.
+    pub(crate) fn alloc_specific(&mut self, entity: Entity) {
+        let index = entity.index as usize;
+        if index == self.slots.len() {
+            assert!(
+                entity.generation == NonZeroU32::MIN,
+                "stale entity reservation: fresh slots start at generation 1"
+            );
+            self.slots.push(EntitySlot {
+                generation: entity.generation,
+                chunk: 0,
+                row: 0,
+                flags: 0,
+            });
+            return;
+        }
+        assert!(
+            index < self.slots.len(),
+            "stale entity reservation: index {index} skips ahead of the allocator"
+        );
+        let slot = &mut self.slots[index];
+        assert!(
+            slot.generation.get().is_multiple_of(2)
+                && Self::next_generation(slot.generation) == entity.generation,
+            "stale entity reservation: slot {index} moved on"
+        );
+        let position = self
+            .free
+            .iter()
+            .position(|&free| free == entity.index)
+            .expect("dead slot is on the free list");
+        self.free.remove(position);
+        slot.generation = entity.generation;
+    }
+
     /// Number of live entities.
     pub(crate) fn live_count(&self) -> usize {
         self.slots.len() - self.free.len()
@@ -435,6 +503,82 @@ mod tests {
             assert_ne!(dead, 0);
             assert_eq!(dead % 2, 0);
         }
+    }
+
+    // -------------------------------------------------------- reservations
+
+    #[test]
+    fn snapshot_predicts_exactly_what_alloc_would_produce() {
+        let mut e = Entities::new();
+        let a = e.alloc();
+        let b = e.alloc();
+        let _keep = e.alloc();
+        e.dealloc(a);
+        e.dealloc(b);
+
+        let (mut predicted, fresh) = e.reservation_snapshot();
+        let p1 = predicted.pop().unwrap();
+        let p2 = predicted.pop().unwrap();
+        assert_eq!(e.alloc(), p1, "predictions mirror alloc order");
+        assert_eq!(e.alloc(), p2);
+        assert_eq!(e.alloc(), Entity::fresh(fresh));
+    }
+
+    #[test]
+    fn alloc_specific_redeems_predictions() {
+        let mut e = Entities::new();
+        let a = e.alloc();
+        e.dealloc(a);
+        let (mut predicted, fresh) = e.reservation_snapshot();
+        let p = predicted.pop().unwrap();
+        e.alloc_specific(p);
+        e.alloc_specific(Entity::fresh(fresh));
+        assert!(e.is_alive(p));
+        assert!(e.is_alive(Entity::fresh(fresh)));
+        assert_eq!(e.live_count(), 2);
+    }
+
+    #[test]
+    fn alloc_specific_tolerates_free_list_growth_in_between() {
+        // A prediction stays valid even when other slots are freed before it
+        // is redeemed — the case a command queue creates by interleaving
+        // despawns and reserved spawns.
+        let mut e = Entities::new();
+        let a = e.alloc();
+        let victim = e.alloc();
+        e.dealloc(a);
+        let (predicted, _) = e.reservation_snapshot();
+        let p = *predicted.last().unwrap();
+
+        e.dealloc(victim); // free list grows after the snapshot
+        e.alloc_specific(p);
+        assert!(e.is_alive(p));
+        assert!(!e.is_alive(victim));
+        let recycled = e.alloc();
+        assert_eq!(recycled.index(), victim.index(), "victim's slot still recyclable");
+    }
+
+    #[test]
+    fn alloc_specific_extends_fresh_slots() {
+        let mut e = Entities::new();
+        e.alloc();
+        let (_, fresh) = e.reservation_snapshot();
+        let p = Entity::fresh(fresh);
+        e.alloc_specific(p);
+        assert!(e.is_alive(p));
+        assert_eq!(e.live_count(), 2);
+    }
+
+    #[test]
+    #[should_panic(expected = "stale entity reservation")]
+    fn alloc_specific_rejects_a_taken_slot() {
+        let mut e = Entities::new();
+        let a = e.alloc();
+        e.dealloc(a);
+        let (predicted, _) = e.reservation_snapshot();
+        let p = *predicted.last().unwrap();
+        let _stolen = e.alloc(); // someone else took the slot
+        e.alloc_specific(p);
     }
 
     // ------------------------------------------------------------- equality

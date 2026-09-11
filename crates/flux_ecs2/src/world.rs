@@ -37,6 +37,7 @@ pub struct WorldCells<'w> {
     pub(crate) chunks: &'w Chunks,
     pub(crate) archetypes: &'w Archetypes,
     pub(crate) reg: &'w Registry,
+    pub(crate) entities: &'w Entities,
 }
 
 impl World {
@@ -51,6 +52,19 @@ impl World {
     ///
     /// If the bundle contains the same component more than once.
     pub fn spawn<B: Bundle>(&mut self, bundle: B) -> Entity {
+        let entity = self.entities.alloc();
+        self.place(entity, bundle);
+        entity
+    }
+
+    /// Spawns `bundle` onto a reserved entity id.
+    pub(crate) fn spawn_reserved<B: Bundle>(&mut self, entity: Entity, bundle: B) {
+        self.entities.alloc_specific(entity);
+        self.place(entity, bundle);
+    }
+
+    /// Places a freshly allocated entity's components; shared spawn tail.
+    fn place<B: Bundle>(&mut self, entity: Entity, bundle: B) {
         let field_ids = B::ids(&mut self.registry);
         let mut signature = field_ids.clone();
         signature.sort();
@@ -62,7 +76,6 @@ impl World {
             .archetypes
             .get_or_create(&signature, &self.registry)
             .expect("bundle is too large to fit in a single chunk");
-        let entity = self.entities.alloc();
         let (chunk, row) = {
             let arch = self.archetypes.get_mut(arch_id);
             unsafe { ops::alloc_row(arch, arch_id, &mut self.chunks, &mut self.alloc, entity) }
@@ -94,7 +107,6 @@ impl World {
         slot.row = row;
         self.version += 1;
         self.stamp_all_columns(chunk, arch_id, true);
-        entity
     }
 
     /// Despawns `entity`, dropping all of its components.
@@ -294,6 +306,16 @@ impl World {
         self.get::<T>(entity)
     }
 
+    /// Despawns the entity holding the world's single `T`.
+    ///
+    /// Returns false when no live singleton `T` exists.
+    pub fn remove_singleton<T: Component>(&mut self) -> bool {
+        let Some(entity) = self.singletons.remove(&T::KEY) else {
+            return false;
+        };
+        self.despawn(entity)
+    }
+
     /// Mutable access to the world's single `T`, if one was inserted.
     pub fn singleton_mut<T: Component>(&mut self) -> Option<&mut T> {
         let entity = *self.singletons.get(&T::KEY)?;
@@ -417,6 +439,7 @@ impl World {
             chunks: &self.chunks,
             archetypes: &self.archetypes,
             reg: &self.registry,
+            entities: &self.entities,
         }
     }
 

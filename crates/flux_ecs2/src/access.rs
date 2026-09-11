@@ -57,7 +57,7 @@ impl AccessList {
     ///
     /// # Panics
     ///
-    /// If the combined length exceeds [`MAX_ACCESS`]. In const context this
+    /// If the combined length exceeds the fixed capacity. In const context this
     /// is a compile error.
     pub const fn concat(self, other: Self) -> Self {
         assert!(

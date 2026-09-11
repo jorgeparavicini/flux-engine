@@ -22,6 +22,24 @@ pub trait System {
 /// (queries, locals).
 /// A function whose parameters conflict — two of them accessing the same
 /// component with at least one write — is rejected during code generation.
+/// What a system may return.
+pub trait SystemOutput {
+    /// One run's outcome; failures carry a report message.
+    fn into_result(self) -> Result<(), String>;
+}
+
+impl SystemOutput for () {
+    fn into_result(self) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+impl<E: std::fmt::Debug> SystemOutput for Result<(), E> {
+    fn into_result(self) -> Result<(), String> {
+        self.map_err(|error| format!("{error:?}"))
+    }
+}
+
 #[diagnostic::on_unimplemented(
     message = "`{Self}` is not a valid system",
     label = "invalid system",
@@ -41,6 +59,12 @@ pub trait ParamSet: 'static {
     type States: 'static;
 
     fn init(world: &mut World) -> Self::States;
+
+    /// Applies the members' deferred work after a run.
+    fn apply(states: &mut Self::States, world: &mut World);
+
+    /// Drops the members' deferred work after a failed run.
+    fn discard(states: &mut Self::States);
 }
 
 /// A function callable with a parameter set's fetched items.
@@ -48,28 +72,29 @@ pub trait ParamSet: 'static {
     message = "`{Self}` is not a valid system",
     note = "every argument must be a system parameter: `Query<..>`, `Single<..>`, or `Local<..>`"
 )]
-pub trait ParamFunction<Params: ParamSet>: 'static {
+pub trait ParamFunction<Params: ParamSet, Out: SystemOutput>: 'static {
     /// Fetches every parameter at `version` and calls the function.
     ///
     /// # Safety
     ///
     /// `Params::ACCESS` must be conflict-free.
-    unsafe fn call(&mut self, states: &mut Params::States, cells: &WorldCells<'_>, version: u64);
+    unsafe fn call(&mut self, states: &mut Params::States, cells: &WorldCells<'_>, version: u64) -> Out;
 }
 
 /// A plain function together with its parameters' persistent state.
-pub struct FunctionSystem<Func, Params: ParamSet> {
+pub struct FunctionSystem<Func, Params: ParamSet, Out> {
     func: Func,
     /// Initialized on the first run.
     state: Option<Params::States>,
     access: AccessList,
-    _params: PhantomData<fn(Params)>,
+    _params: PhantomData<fn(Params) -> Out>,
 }
 
-impl<Func, Params> System for FunctionSystem<Func, Params>
+impl<Func, Params, Out> System for FunctionSystem<Func, Params, Out>
 where
     Params: ParamSet,
-    Func: ParamFunction<Params>,
+    Out: SystemOutput,
+    Func: ParamFunction<Params, Out>,
 {
     fn access(&self) -> &AccessList {
         &self.access
@@ -80,11 +105,23 @@ where
             self.state = Some(Params::init(world));
         }
         let version = world.bump_version();
-        let cells = world.cells();
+        let outcome = {
+            let cells = world.cells();
+            let states = self.state.as_mut().expect("initialized above");
+            // SAFETY: into_system rejected conflicting parameter sets at
+            // compile time, and the exclusive world borrow excludes all
+            // other access.
+            unsafe { self.func.call(states, &cells, version) }
+        };
         let states = self.state.as_mut().expect("initialized above");
-        // SAFETY: into_system rejected conflicting parameter sets at compile
-        // time, and the exclusive world borrow excludes all other access.
-        unsafe { self.func.call(states, &cells, version) };
+        match outcome.into_result() {
+            Ok(()) => Params::apply(states, world),
+            Err(message) => {
+                // A failed system has no effects: its deferred work is dropped.
+                Params::discard(states);
+                panic!("system `{}` failed: {message}", self.name());
+            }
+        }
     }
 
     fn name(&self) -> &str {
@@ -92,12 +129,13 @@ where
     }
 }
 
-impl<Func, Params> IntoSystem<fn(Params)> for Func
+impl<Func, Params, Out> IntoSystem<fn(Params) -> Out> for Func
 where
     Params: ParamSet,
-    Func: ParamFunction<Params>,
+    Out: SystemOutput,
+    Func: ParamFunction<Params, Out>,
 {
-    type System = FunctionSystem<Func, Params>;
+    type System = FunctionSystem<Func, Params, Out>;
 
     fn into_system(self) -> Self::System {
         const {
@@ -129,16 +167,29 @@ macro_rules! param_set {
             fn init(world: &mut World) -> Self::States {
                 ($($p::init(world),)*)
             }
+
+            #[allow(non_snake_case, unused_variables)]
+            fn apply(states: &mut Self::States, world: &mut World) {
+                let ($($s,)*) = states;
+                $( $p::apply($s, world); )*
+            }
+
+            #[allow(non_snake_case, unused_variables)]
+            fn discard(states: &mut Self::States) {
+                let ($($s,)*) = states;
+                $( $p::discard($s); )*
+            }
         }
 
-        impl<Func, $($p: SystemParam + 'static),*> ParamFunction<($($p,)*)> for Func
+        impl<Func, Out, $($p: SystemParam + 'static),*> ParamFunction<($($p,)*), Out> for Func
         where
-            Func: 'static + FnMut($($p),*) + for<'w, 's> FnMut($($p::Item<'w, 's>),*),
+            Out: SystemOutput,
+            Func: 'static + FnMut($($p),*) -> Out + for<'w, 's> FnMut($($p::Item<'w, 's>),*) -> Out,
         {
             #[allow(non_snake_case, unused_variables)]
-            unsafe fn call(&mut self, states: &mut ($($p::State,)*), cells: &WorldCells<'_>, version: u64) {
+            unsafe fn call(&mut self, states: &mut ($($p::State,)*), cells: &WorldCells<'_>, version: u64) -> Out {
                 #[allow(clippy::too_many_arguments)]
-                fn call_inner<$($p),*>(f: &mut impl FnMut($($p),*), $($s: $p),*) {
+                fn call_inner<Out, $($p),*>(f: &mut impl FnMut($($p),*) -> Out, $($s: $p),*) -> Out {
                     f($($s),*)
                 }
                 let ($($s,)*) = states;
@@ -157,6 +208,10 @@ param_set!((P1, s1), (P2, s2), (P3, s3), (P4, s4), (P5, s5));
 param_set!((P1, s1), (P2, s2), (P3, s3), (P4, s4), (P5, s5), (P6, s6));
 param_set!((P1, s1), (P2, s2), (P3, s3), (P4, s4), (P5, s5), (P6, s6), (P7, s7));
 param_set!((P1, s1), (P2, s2), (P3, s3), (P4, s4), (P5, s5), (P6, s6), (P7, s7), (P8, s8));
+param_set!((P1, s1), (P2, s2), (P3, s3), (P4, s4), (P5, s5), (P6, s6), (P7, s7), (P8, s8), (P9, s9));
+param_set!((P1, s1), (P2, s2), (P3, s3), (P4, s4), (P5, s5), (P6, s6), (P7, s7), (P8, s8), (P9, s9), (P10, s10));
+param_set!((P1, s1), (P2, s2), (P3, s3), (P4, s4), (P5, s5), (P6, s6), (P7, s7), (P8, s8), (P9, s9), (P10, s10), (P11, s11));
+param_set!((P1, s1), (P2, s2), (P3, s3), (P4, s4), (P5, s5), (P6, s6), (P7, s7), (P8, s8), (P9, s9), (P10, s10), (P11, s11), (P12, s12));
 
 #[cfg(test)]
 mod tests {
