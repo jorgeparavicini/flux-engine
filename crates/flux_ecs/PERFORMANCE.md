@@ -112,3 +112,15 @@ machinery (~9 ns/chunk).
 
 - Trigger: regression below the chunk-layout baseline in the bench, or a
   profile showing fetch overhead on real workloads.
+
+## Toggleable iteration: per-row bit test instead of enabled runs
+
+`query/iter.rs` skips disabled rows by testing one enabled bit per row
+(`row_enabled`). A query naming a toggleable component builds a combined
+mask (`Vec<u64>`) per chunk and consults it each row.
+
+- Trigger: hot queries over toggleable components where the branch or the
+  per-chunk mask allocation shows up in a profile. Known answer: yield
+  maximal runs of enabled rows via a `trailing_zeros` scan so the inner
+  loop runs branch-free over contiguous spans, and borrow the mask instead
+  of cloning it per chunk.
