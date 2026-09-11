@@ -36,3 +36,7 @@ harness = false
 [[bench]]
 name = "structural"
 harness = false
+
+[[bench]]
+name = "hierarchy"
+harness = false

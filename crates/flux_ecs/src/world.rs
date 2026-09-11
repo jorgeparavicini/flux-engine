@@ -294,6 +294,81 @@ impl World {
             .find(|&id| self.registry.info(id).relation.map(|r| r.relation) == Some(R::KEY))
     }
 
+    /// Propagates a value down the `ChildOf` tree, one parallel pass per depth.
+    ///
+    /// Each root's `W` is `root(&its L)`; each child's is
+    /// `combine(&parent W, &its L)`. A depth level is computed in parallel —
+    /// every entity reads its parent's finished `W` from the level above and
+    /// writes its own — so `combine` must depend only on those two inputs.
+    /// Entities missing `L` or `W` are skipped.
+    pub fn propagate<L: Component, W: Component>(
+        &mut self,
+        root: impl Fn(&L) -> W + Sync,
+        combine: impl Fn(&W, &L) -> W + Sync,
+    ) {
+        let levels = self.hierarchy_levels().to_vec();
+        let this: &World = self;
+        let (root, combine) = (&root, &combine);
+        for (depth, level) in levels.iter().enumerate() {
+            if level.is_empty() {
+                continue;
+            }
+            let threads = std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(1)
+                .min(level.len());
+            let group = level.len().div_ceil(threads);
+            std::thread::scope(|scope| {
+                for slice in level.chunks(group) {
+                    scope.spawn(move || {
+                        for &entity in slice {
+                            // SAFETY: each entity's W is written by exactly one
+                            // thread; parents sit one level up and are only read,
+                            // never written, during this level.
+                            let Some(local) = (unsafe { this.component_ptr_of::<L>(entity) }) else {
+                                continue;
+                            };
+                            let local = unsafe { &*local };
+                            let value = if depth == 0 {
+                                root(local)
+                            } else {
+                                let Some(parent) = this.related::<ChildOf>(entity) else {
+                                    continue;
+                                };
+                                let Some(pw) = (unsafe { this.component_ptr_of::<W>(parent) }) else {
+                                    continue;
+                                };
+                                combine(unsafe { &*pw }, local)
+                            };
+                            if let Some(w) = unsafe { this.component_ptr_of::<W>(entity) } {
+                                unsafe { *w = value };
+                            }
+                        }
+                    });
+                }
+            });
+        }
+    }
+
+    /// Raw pointer to `entity`'s `T` component, or None if the entity is dead
+    /// or lacks `T`.
+    ///
+    /// # Safety
+    ///
+    /// The returned pointer aliases the component's storage; the caller must
+    /// uphold the usual exclusive/shared discipline before dereferencing it.
+    unsafe fn component_ptr_of<T: Component>(&self, entity: Entity) -> Option<*mut T> {
+        let slot = self.entities.slot(entity)?;
+        let chunk = ChunkId(slot.chunk);
+        let id = self.registry.lookup(T::KEY)?;
+        let arch = self.archetypes.get(self.chunks.archetype(chunk));
+        let column = arch.signature().binary_search(&id).ok()?;
+        Some(unsafe {
+            ops::component_ptr(&self.chunks, &arch.layout, &self.registry, chunk, column, slot.row)
+                .cast::<T>()
+        })
+    }
+
     /// Entities grouped by `ChildOf` depth: `levels[d]` are the entities `d`
     /// edges below a root. Only entities inside a `ChildOf` tree appear.
     /// Rebuilt from the relation graph when a structural change marked it
@@ -1762,5 +1837,67 @@ mod tests {
         let mut seen: Vec<(u64, Entity)> = Vec::new();
         world.query(&mut state).for_each(|(a, p)| seen.push((a.0, p)));
         assert_eq!(seen, vec![(99, parent)]);
+    }
+
+    // ----------------------------------------------------------- propagation
+
+    #[derive(Copy, Clone, PartialEq, Debug)]
+    struct Loc(i64);
+    component!(Loc);
+    #[derive(Copy, Clone, PartialEq, Debug)]
+    struct Glob(i64);
+    component!(Glob);
+
+    #[test]
+    fn propagate_accumulates_down_the_tree() {
+        let mut world = World::new();
+        let root = world.spawn((Loc(1), Glob(0)));
+        let a = world.spawn((Loc(10), Glob(0)));
+        let b = world.spawn((Loc(20), Glob(0)));
+        let leaf = world.spawn((Loc(100), Glob(0)));
+        world.relate::<ChildOf>(a, root);
+        world.relate::<ChildOf>(b, root);
+        world.relate::<ChildOf>(leaf, a);
+
+        world.propagate::<Loc, Glob>(|l| Glob(l.0), |pw, l| Glob(pw.0 + l.0));
+
+        assert_eq!(world.get::<Glob>(root), Some(&Glob(1)));
+        assert_eq!(world.get::<Glob>(a), Some(&Glob(11)));
+        assert_eq!(world.get::<Glob>(b), Some(&Glob(21)));
+        assert_eq!(world.get::<Glob>(leaf), Some(&Glob(111)));
+    }
+
+    #[test]
+    fn propagate_matches_the_root_path_sum() {
+        let mut world = World::new();
+        let root = world.spawn((Loc(5), Glob(0)));
+        let mut all = vec![root];
+        let mut prev = vec![root];
+        let mut value = 1i64;
+        for _ in 0..4 {
+            let mut next = Vec::new();
+            for &parent in &prev {
+                for _ in 0..3 {
+                    let child = world.spawn((Loc(value), Glob(0)));
+                    value += 1;
+                    world.relate::<ChildOf>(child, parent);
+                    next.push(child);
+                    all.push(child);
+                }
+            }
+            prev = next;
+        }
+
+        world.propagate::<Loc, Glob>(|l| Glob(l.0), |pw, l| Glob(pw.0 + l.0));
+
+        for &e in &all {
+            let mut sum = 0;
+            let mut current = Some(e);
+            while let Some(node) = current {
+                sum += world.get::<Loc>(node).unwrap().0;
+                current = world.related::<ChildOf>(node);
+            }
+            assert_eq!(world.get::<Glob>(e).unwrap().0, sum, "node {e:?}");
+        }
     }
 }
