@@ -16,6 +16,13 @@ pub struct ChunkAlloc {
     peak: usize,
 }
 
+// SAFETY: shared (`&ChunkAlloc`) access exposes only immutable counter reads.
+// Allocation and deallocation, which touch the block pointers, require
+// `&mut ChunkAlloc` and so cannot occur while the value is shared; the
+// executor never allocates during a parallel wave.
+unsafe impl Sync for ChunkAlloc {}
+unsafe impl Send for ChunkAlloc {}
+
 impl ChunkAlloc {
     const LAYOUT: Layout = match Layout::from_size_align(CHUNK_SIZE, CHUNK_ALIGN) {
         Ok(layout) => layout,
