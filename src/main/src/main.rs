@@ -1,7 +1,5 @@
-use flux_ecs::schedule::ScheduleLabel::{Destroy, Initialization, Render};
-use flux_ecs::world::World;
+use flux_ecs::World;
 use flux_renderer::instance::{SurfaceProvider, SurfaceProviderResource};
-use flux_renderer::RendererPlugin;
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
 use winit::raw_window_handle::{
@@ -42,24 +40,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let surface_provider_resource = SurfaceProviderResource {
         provider: Box::new(surface_provider),
     };
-    world.add_resource(surface_provider_resource);
+    world.insert_singleton(surface_provider_resource);
 
-    world.add_plugin(RendererPlugin);
-    world.run_schedule(&Initialization);
+    flux_renderer::setup(&mut world);
+    let mut init = flux_renderer::init_schedule();
+    let mut render = flux_renderer::render_schedule();
+    let mut destroy = flux_renderer::destroy_schedule();
+    init.run(&mut world);
 
-    let mut minimized = false;
+    let minimized = false;
     event_loop.run(move |event, elwt| match event {
         Event::AboutToWait => world
-            .get_resource::<SurfaceProviderResource>()
+            .singleton::<SurfaceProviderResource>()
             .unwrap()
             .request_redraw(),
         Event::WindowEvent { event, .. } => match event {
             WindowEvent::RedrawRequested if !elwt.exiting() && !minimized => {
-                world.run_schedule(&Render)
+                render.run(&mut world);
             }
             WindowEvent::CloseRequested => {
                 elwt.exit();
-                world.run_schedule(&Destroy)
+                destroy.run(&mut world);
             }
             _ => {}
         },
