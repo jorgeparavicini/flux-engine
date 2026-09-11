@@ -34,6 +34,11 @@ pub trait System {
     /// recent [`run_deferred`](System::run_deferred), panicking on a failed
     /// run. Serial.
     fn apply_deferred(&mut self, world: &mut World);
+
+    /// Refreshes internal query state against the world and reports the
+    /// archetypes this system's access reaches. [`initialize`](System::initialize)
+    /// must have run first.
+    fn refined_access(&mut self, world: &World) -> crate::system::param::RefinedAccess;
 }
 
 /// Conversion of plain functions into systems.
@@ -85,6 +90,13 @@ pub trait ParamSet: 'static {
 
     /// Drops the members' deferred work after a failed run.
     fn discard(states: &mut Self::States);
+
+    /// Reports the archetypes the members' access reaches.
+    fn refined_access(
+        states: &mut Self::States,
+        cells: &crate::world::WorldCells<'_>,
+        out: &mut crate::system::param::RefinedAccess,
+    );
 }
 
 /// A function callable with a parameter set's fetched items.
@@ -158,6 +170,13 @@ where
             }
         }
     }
+
+    fn refined_access(&mut self, world: &World) -> crate::system::param::RefinedAccess {
+        let states = self.state.as_mut().expect("initialize before refined_access");
+        let mut out = crate::system::param::RefinedAccess::default();
+        Params::refined_access(states, &world.cells(), &mut out);
+        out
+    }
 }
 
 impl<Func, Params, Out> IntoSystem<fn(Params) -> Out> for Func
@@ -210,6 +229,16 @@ macro_rules! param_set {
             fn discard(states: &mut Self::States) {
                 let ($($s,)*) = states;
                 $( $p::discard($s); )*
+            }
+
+            #[allow(non_snake_case, unused_variables)]
+            fn refined_access(
+                states: &mut Self::States,
+                cells: &crate::world::WorldCells<'_>,
+                out: &mut crate::system::param::RefinedAccess,
+            ) {
+                let ($($s,)*) = states;
+                $( $p::refined_access($s, cells, out); )*
             }
         }
 

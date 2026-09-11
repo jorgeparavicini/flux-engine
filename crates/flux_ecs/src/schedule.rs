@@ -1,3 +1,4 @@
+use crate::system::param::RefinedAccess;
 use crate::{ComponentKey, IntoSystem, System, World};
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashSet};
@@ -83,12 +84,14 @@ impl Schedule {
 
     /// The conflicting, unordered system pairs of this schedule.
     ///
-    /// Runs the schedule across threads: systems with disjoint access run
-    /// concurrently. Deterministic — versions and command application follow
-    /// the compiled order regardless of thread timing.
+    /// Runs the schedule across threads: systems whose access does not
+    /// conflict — no shared component with a write over intersecting
+    /// archetypes — run concurrently.
     ///
-    /// Commands apply at wave boundaries, not after each system, so a system
-    /// observing another's deferred change must be ordered after it.
+    /// Deterministic: versions and command application follow the compiled
+    /// order regardless of thread timing. Commands apply at wave boundaries,
+    /// so a system observing another's deferred change must be ordered after
+    /// it.
     pub fn run_parallel(&mut self, world: &mut World) {
         self.compile();
         let order = self.order.clone().expect("compiled");
@@ -100,23 +103,49 @@ impl Schedule {
         for &index in &order {
             version[index] = world.bump_version();
         }
-        for wave in self.waves(&order) {
-            // Evaluate run conditions serially, with full world access.
+
+        let mut done = vec![false; self.entries.len()];
+        let mut remaining = order.len();
+        while remaining > 0 {
+            // Refresh refined access against the current world (which reflects
+            // earlier waves' committed commands) for every not-yet-run system.
+            let mut refined: Vec<Option<RefinedAccess>> = (0..self.entries.len()).map(|_| None).collect();
             for &index in &order {
-                if wave.contains(&index) {
-                    let hold = self.entries[index]
-                        .conditions
-                        .iter()
-                        .all(|condition| condition(world));
-                    self.entries[index].ran = hold;
+                if !done[index] {
+                    refined[index] = Some(self.entries[index].system.refined_access(world));
                 }
             }
+            // Greedily form the next wave in topological order: a system joins
+            // if its ordering predecessors are done and it conflicts with no
+            // member already in the wave.
+            let mut wave: Vec<usize> = Vec::new();
+            for &index in &order {
+                if done[index] || !self.predecessors_done(index, &done) {
+                    continue;
+                }
+                let access = refined[index].as_ref().expect("refined above");
+                let conflicts = wave.iter().any(|&other| {
+                    access.conflicts_with(refined[other].as_ref().expect("refined above"))
+                });
+                if !conflicts {
+                    wave.push(index);
+                }
+            }
+            // Evaluate run conditions serially, with full world access.
+            for &index in &wave {
+                let hold = self.entries[index]
+                    .conditions
+                    .iter()
+                    .all(|condition| condition(world));
+                self.entries[index].ran = hold;
+            }
+            let wave_set: HashSet<usize> = wave.iter().copied().collect();
             let versions = &version;
             let members: Vec<(usize, &mut Entry)> = self
                 .entries
                 .iter_mut()
                 .enumerate()
-                .filter(|(i, entry)| wave.contains(i) && entry.ran)
+                .filter(|(i, entry)| wave_set.contains(i) && entry.ran)
                 .collect();
             let cells = world.cells();
             std::thread::scope(|scope| {
@@ -130,54 +159,27 @@ impl Schedule {
             });
             // Barrier: apply deferred work in topological order.
             for &index in &order {
-                if wave.contains(&index) && self.entries[index].ran {
-                    self.entries[index].system.apply_deferred(world);
+                if wave_set.contains(&index) {
+                    if self.entries[index].ran {
+                        self.entries[index].system.apply_deferred(world);
+                    }
+                    done[index] = true;
+                    remaining -= 1;
                 }
             }
         }
     }
 
-    /// Groups `order` into waves of mutually conflict-free systems that
-    /// respect the ordering edges. Each wave is a set of indices.
-    fn waves(&self, order: &[usize]) -> Vec<HashSet<usize>> {
-        let n = self.entries.len();
-        let mut wave_of = vec![0usize; n];
-        let mut waves: Vec<HashSet<usize>> = Vec::new();
-        for &index in order {
-            let mut candidate = self.min_wave(index, &wave_of);
-            loop {
-                while waves.len() <= candidate {
-                    waves.push(HashSet::new());
-                }
-                let conflict = waves[candidate].iter().any(|&other| {
-                    self.entries[index]
-                        .system
-                        .access()
-                        .conflicts_with(self.entries[other].system.access())
-                });
-                if conflict {
-                    candidate += 1;
-                } else {
-                    break;
-                }
-            }
-            waves[candidate].insert(index);
-            wave_of[index] = candidate;
-        }
-        waves.into_iter().filter(|w| !w.is_empty()).collect()
-    }
-
-    /// One past the highest wave of `index`'s ordering predecessors.
-    fn min_wave(&self, index: usize, wave_of: &[usize]) -> usize {
-        let mut floor = 0;
+    /// Whether every ordering predecessor of `index` has already run.
+    fn predecessors_done(&self, index: usize, done: &[bool]) -> bool {
         for (other, entry) in self.entries.iter().enumerate() {
             let before = entry.before.iter().any(|l| self.entries[index].label == Some(*l));
             let after = self.entries[index].after.iter().any(|l| entry.label == Some(*l));
-            if before || after {
-                floor = floor.max(wave_of[other] + 1);
+            if (before || after) && !done[other] {
+                return false;
             }
         }
-        floor
+        true
     }
 
     /// Ambiguities are legal — the serial executor runs them in insertion
@@ -636,27 +638,68 @@ mod tests {
         assert!(sum(&mut ws) > 0);
     }
 
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static A_SAW_B: AtomicBool = AtomicBool::new(false);
+    static B_SAW_A: AtomicBool = AtomicBool::new(false);
+    static A_IN: AtomicBool = AtomicBool::new(false);
+    static B_IN: AtomicBool = AtomicBool::new(false);
+
     #[test]
-    fn disjoint_writers_of_the_same_component_run_in_one_wave() {
-        // Both write A, but with structural filters over disjoint archetypes.
-        // (Component-level v1: they still conflict, so this asserts the
-        // wave/ordering machinery, not the archetype refinement yet.)
-        fn only_flag(q: Query<&mut N, With<Flag>>) {
-            q.for_each(|n| n.0 += 1);
+    fn disjoint_writers_of_the_same_component_run_concurrently() {
+        // Both write N — component-level conflict — but over disjoint
+        // archetypes: {N, Flag} vs {N}. The refinement must let them run at
+        // once. Each announces itself and briefly waits for the other; if they
+        // were serialized, the first would time out without seeing the second.
+        fn flagged(q: Query<&mut N, With<Flag>>) {
+            q.for_each(|_| {});
+            A_IN.store(true, Ordering::SeqCst);
+            for _ in 0..50_000_000 {
+                if B_IN.load(Ordering::SeqCst) {
+                    A_SAW_B.store(true, Ordering::SeqCst);
+                    break;
+                }
+                std::hint::spin_loop();
+            }
         }
-        fn only_trace(q: Query<&mut N, Without<Flag>>) {
-            q.for_each(|n| n.0 += 1);
+        fn plain(q: Query<&mut N, Without<Flag>>) {
+            q.for_each(|_| {});
+            B_IN.store(true, Ordering::SeqCst);
+            for _ in 0..50_000_000 {
+                if A_IN.load(Ordering::SeqCst) {
+                    B_SAW_A.store(true, Ordering::SeqCst);
+                    break;
+                }
+                std::hint::spin_loop();
+            }
         }
         let mut w = World::new();
         w.spawn((N(0), Flag(false)));
         w.spawn((N(0),));
         let mut s = Schedule::new();
-        s.add(only_flag);
-        s.add(only_trace);
+        s.add(flagged);
+        s.add(plain);
+        s.run_parallel(&mut w);
+        assert!(
+            A_SAW_B.load(Ordering::SeqCst) && B_SAW_A.load(Ordering::SeqCst),
+            "disjoint-archetype writers of the same component ran concurrently"
+        );
+    }
+
+    #[test]
+    fn overlapping_writers_of_the_same_component_still_serialize() {
+        // Both write N over the SAME archetype {N}: they must not share a wave.
+        fn a(q: Query<&mut N>) { q.for_each(|n| n.0 += 1); }
+        fn b(q: Query<&mut N>) { q.for_each(|n| n.0 += 1); }
+        let mut w = World::new();
+        for _ in 0..10 { w.spawn((N(0),)); }
+        let mut s = Schedule::new();
+        s.add(a);
+        s.add(b);
         s.run_parallel(&mut w);
         let mut st = QueryState::<&N>::new();
         let total: u64 = w.query(&mut st).chunks().map(|c| c.iter().map(|n| n.0).sum::<u64>()).sum();
-        assert_eq!(total, 2, "both systems ran, each touching its own entity");
+        assert_eq!(total, 20, "both ran; no lost update from a race");
     }
 
     #[test]

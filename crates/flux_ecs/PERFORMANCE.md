@@ -34,6 +34,19 @@ redemption primitive.
 - Trigger: the parallel executor. Not before — atomics on the serial path
   are pure cost.
 
+## Parallel executor: refined access recomputed every wave
+
+`run_parallel` recomputes each not-yet-run system's refined access (refresh
++ matched-archetype snapshot) at every wave boundary, since barrier commands
+can create archetypes. The design calls for caching the plan keyed by
+archetype generation and recomputing only on change.
+
+- Cost today: refresh is incremental (scans only new archetypes) and
+  `matched().to_vec()` per accessed component per wave; small for stable
+  archetype sets.
+- Trigger: profiles showing wave planning dominating on schedules with many
+  systems, or workloads with continuous archetype churn (§8.3).
+
 ## Ambiguity detection: O(n²) pairs with per-node DFS
 
 `Schedule::compile` computes reachability per system via DFS and checks

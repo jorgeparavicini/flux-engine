@@ -6,6 +6,54 @@ pub use crate::world::WorldCells;
 use crate::{Component, Query, QueryFilter, QueryState, World};
 use std::ops::{Deref, DerefMut};
 
+/// One component a system accesses, refined to the archetypes it touches.
+pub struct RefinedTerm {
+    pub(crate) key: crate::ComponentKey,
+    pub(crate) write: bool,
+    /// Matched archetypes, sorted ascending.
+    pub(crate) archetypes: Vec<crate::storage::archetype::ArchetypeId>,
+}
+
+/// A system's access, refined per component to the archetypes it reaches.
+#[derive(Default)]
+pub struct RefinedAccess {
+    pub(crate) terms: Vec<RefinedTerm>,
+}
+
+impl RefinedAccess {
+    /// Whether two refined accesses conflict: a shared component with a write,
+    /// over intersecting archetype sets.
+    pub(crate) fn conflicts_with(&self, other: &RefinedAccess) -> bool {
+        for a in &self.terms {
+            for b in &other.terms {
+                if a.key == b.key
+                    && (a.write || b.write)
+                    && intersects(&a.archetypes, &b.archetypes)
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+}
+
+/// Merge-scan intersection of two ascending archetype-id slices.
+fn intersects(
+    a: &[crate::storage::archetype::ArchetypeId],
+    b: &[crate::storage::archetype::ArchetypeId],
+) -> bool {
+    let (mut i, mut j) = (0, 0);
+    while i < a.len() && j < b.len() {
+        match a[i].cmp(&b[j]) {
+            std::cmp::Ordering::Less => i += 1,
+            std::cmp::Ordering::Greater => j += 1,
+            std::cmp::Ordering::Equal => return true,
+        }
+    }
+    false
+}
+
 /// A value a system receives per run, fetched from the world.
 ///
 /// # Safety
@@ -47,6 +95,11 @@ pub unsafe trait SystemParam {
     /// Drops deferred work after the system failed.
     #[allow(unused_variables)]
     fn discard(state: &mut Self::State) {}
+
+    /// Refreshes state against the world and reports the archetypes this
+    /// parameter's access reaches. Default: nothing (no component access).
+    #[allow(unused_variables)]
+    fn refined_access(state: &mut Self::State, cells: &WorldCells<'_>, out: &mut RefinedAccess) {}
 }
 
 unsafe impl<D, F> SystemParam for Query<'_, '_, D, F>
@@ -60,6 +113,17 @@ where
 
     fn init(_world: &mut World) -> Self::State {
         QueryState::new()
+    }
+
+    fn refined_access(state: &mut Self::State, cells: &WorldCells<'_>, out: &mut RefinedAccess) {
+        state.refresh(cells.archetypes, cells.reg);
+        for term in D::ACCESS.terms() {
+            out.terms.push(RefinedTerm {
+                key: term.key,
+                write: term.write,
+                archetypes: state.matched().to_vec(),
+            });
+        }
     }
 
     unsafe fn fetch<'w, 's>(
@@ -228,6 +292,17 @@ unsafe impl<T: Component> SystemParam for Single<'_, &T> {
         QueryState::new()
     }
 
+    fn refined_access(state: &mut Self::State, cells: &WorldCells<'_>, out: &mut RefinedAccess) {
+        state.refresh(cells.archetypes, cells.reg);
+        for term in Self::ACCESS.terms() {
+            out.terms.push(RefinedTerm {
+                key: term.key,
+                write: term.write,
+                archetypes: state.matched().to_vec(),
+            });
+        }
+    }
+
     unsafe fn fetch<'w, 's>(
         state: &'s mut Self::State,
         cells: &WorldCells<'w>,
@@ -246,6 +321,17 @@ unsafe impl<T: Component> SystemParam for Single<'_, &mut T> {
 
     fn init(_world: &mut World) -> Self::State {
         QueryState::new()
+    }
+
+    fn refined_access(state: &mut Self::State, cells: &WorldCells<'_>, out: &mut RefinedAccess) {
+        state.refresh(cells.archetypes, cells.reg);
+        for term in Self::ACCESS.terms() {
+            out.terms.push(RefinedTerm {
+                key: term.key,
+                write: term.write,
+                archetypes: state.matched().to_vec(),
+            });
+        }
     }
 
     unsafe fn fetch<'w, 's>(
@@ -271,6 +357,17 @@ unsafe impl<'a, T: Component> SystemParam for Option<Single<'a, &T>> {
         QueryState::new()
     }
 
+    fn refined_access(state: &mut Self::State, cells: &WorldCells<'_>, out: &mut RefinedAccess) {
+        state.refresh(cells.archetypes, cells.reg);
+        for term in Self::ACCESS.terms() {
+            out.terms.push(RefinedTerm {
+                key: term.key,
+                write: term.write,
+                archetypes: state.matched().to_vec(),
+            });
+        }
+    }
+
     unsafe fn fetch<'w, 's>(
         state: &'s mut Self::State,
         cells: &WorldCells<'w>,
@@ -288,6 +385,17 @@ unsafe impl<'a, T: Component> SystemParam for Option<Single<'a, &mut T>> {
 
     fn init(_world: &mut World) -> Self::State {
         QueryState::new()
+    }
+
+    fn refined_access(state: &mut Self::State, cells: &WorldCells<'_>, out: &mut RefinedAccess) {
+        state.refresh(cells.archetypes, cells.reg);
+        for term in Self::ACCESS.terms() {
+            out.terms.push(RefinedTerm {
+                key: term.key,
+                write: term.write,
+                archetypes: state.matched().to_vec(),
+            });
+        }
     }
 
     unsafe fn fetch<'w, 's>(
@@ -517,6 +625,12 @@ macro_rules! tuple_system_param {
             fn apply(state: &mut Self::State, world: &mut World) {
                 let ($($s,)+) = state;
                 $( $p::apply($s, world); )+
+            }
+
+            #[allow(non_snake_case)]
+            fn refined_access(state: &mut Self::State, cells: &WorldCells<'_>, out: &mut RefinedAccess) {
+                let ($($s,)+) = state;
+                $( $p::refined_access($s, cells, out); )+
             }
         }
     };
