@@ -137,3 +137,14 @@ per parent that ever had children.
   a relation-id freelist that retires zero-holder pairs and reuses the slot —
   which also has to invalidate the archetype edge caches (`edge_add` /
   `edge_remove`) keyed by the reused id, the reason it is deferred.
+
+## Hierarchy index is rebuilt whole, not incrementally
+
+`hierarchy_levels` rebuilds the depth grouping from scratch (collect every
+`ChildOf` edge, BFS from roots) whenever a `relate`/`unrelate`/`despawn`
+marked it dirty. Rebuild is O(entities in the forest).
+
+- Trigger: frequent small edits to a large hierarchy between reads, where the
+  full rebuild dominates a profile. Known answer: recompute only the moved
+  subtree on a `relate`/`unrelate` — shift its nodes' depths by the delta —
+  instead of discarding the whole index.

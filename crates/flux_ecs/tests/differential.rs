@@ -181,6 +181,12 @@ impl Driver {
                 "ChildOf of {:?}",
                 e
             );
+            prop_assert_eq!(
+                self.real.depth::<ChildOf>(*e),
+                self.reference.depth::<ChildOf>(*e),
+                "ChildOf depth of {:?}",
+                e
+            );
         }
         Ok(())
     }

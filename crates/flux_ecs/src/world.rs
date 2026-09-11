@@ -39,6 +39,15 @@ pub struct World {
     chunks: Chunks,
     alloc: ChunkAlloc,
     version: u64,
+    hierarchy: HierarchyIndex,
+}
+
+/// Entities grouped by `ChildOf` depth, rebuilt from the relation graph when
+/// a structural change marks it stale.
+#[derive(Default)]
+struct HierarchyIndex {
+    levels: Vec<Vec<Entity>>,
+    dirty: bool,
 }
 
 /// Shared view of a world during one system run: what parameters fetch from.
@@ -143,7 +152,9 @@ impl World {
     ///
     /// Returns false on a dead or stale handle, leaving the world unchanged.
     pub fn despawn(&mut self, entity: Entity) -> bool {
-        self.despawn_subtree(entity, &mut HashSet::new())
+        let despawned = self.despawn_subtree(entity, &mut HashSet::new());
+        self.hierarchy.dirty |= despawned;
+        despawned
     }
 
     /// Despawns `entity` after its children; `visited` guards against a cycle
@@ -198,18 +209,58 @@ impl World {
         if self.related::<R>(entity) == Some(target) {
             return true;
         }
+        if R::ACYCLIC && self.is_r_ancestor::<R>(entity, target) {
+            return false;
+        }
         self.unrelate::<R>(entity);
         let id = self.registry.register_relation(R::KEY, target);
         self.add_tag_id(entity, id);
+        self.hierarchy.dirty = true;
         true
     }
 
     /// Removes `entity`'s `R` relation. Returns false if it had none.
     pub fn unrelate<R: Relation>(&mut self, entity: Entity) -> bool {
         match self.relation_id_on::<R>(entity) {
-            Some(id) => self.remove_tag_id(entity, id),
+            Some(id) => {
+                let removed = self.remove_tag_id(entity, id);
+                self.hierarchy.dirty |= removed;
+                removed
+            }
             None => false,
         }
+    }
+
+    /// The number of `R` edges from `entity` up to a root (`0` if it has none).
+    pub fn depth<R: Relation>(&self, entity: Entity) -> u32 {
+        let mut depth = 0;
+        let mut visited = HashSet::new();
+        visited.insert(entity);
+        let mut current = self.related::<R>(entity);
+        while let Some(parent) = current {
+            if !visited.insert(parent) {
+                break;
+            }
+            depth += 1;
+            current = self.related::<R>(parent);
+        }
+        depth
+    }
+
+    /// Whether `ancestor` equals `descendant` or lies on its `R` chain.
+    fn is_r_ancestor<R: Relation>(&self, ancestor: Entity, descendant: Entity) -> bool {
+        let mut visited = HashSet::new();
+        let mut current = Some(descendant);
+        while let Some(entity) = current {
+            if entity == ancestor {
+                return true;
+            }
+            if !visited.insert(entity) {
+                break;
+            }
+            current = self.related::<R>(entity);
+        }
+        false
     }
 
     /// The target of `entity`'s `R` relation, if it has one.
@@ -241,6 +292,72 @@ impl World {
             .iter()
             .copied()
             .find(|&id| self.registry.info(id).relation.map(|r| r.relation) == Some(R::KEY))
+    }
+
+    /// Entities grouped by `ChildOf` depth: `levels[d]` are the entities `d`
+    /// edges below a root. Only entities inside a `ChildOf` tree appear.
+    /// Rebuilt from the relation graph when a structural change marked it
+    /// stale; each level is sorted for a deterministic order.
+    pub(crate) fn hierarchy_levels(&mut self) -> &[Vec<Entity>] {
+        if self.hierarchy.dirty {
+            self.rebuild_hierarchy();
+        }
+        &self.hierarchy.levels
+    }
+
+    fn rebuild_hierarchy(&mut self) {
+        use std::collections::HashMap;
+        let mut children_of: HashMap<Entity, Vec<Entity>> = HashMap::new();
+        let mut is_child: HashSet<Entity> = HashSet::new();
+        for (child, parent) in self.collect_childof_edges() {
+            children_of.entry(parent).or_default().push(child);
+            is_child.insert(child);
+        }
+
+        let mut current: Vec<Entity> = children_of
+            .keys()
+            .copied()
+            .filter(|parent| !is_child.contains(parent))
+            .collect();
+        current.sort_unstable();
+
+        let mut levels: Vec<Vec<Entity>> = Vec::new();
+        while !current.is_empty() {
+            let mut next: Vec<Entity> = Vec::new();
+            for entity in &current {
+                if let Some(kids) = children_of.get(entity) {
+                    next.extend_from_slice(kids);
+                }
+            }
+            next.sort_unstable();
+            levels.push(current);
+            current = next;
+        }
+
+        self.hierarchy.levels = levels;
+        self.hierarchy.dirty = false;
+    }
+
+    /// Every `(child, parent)` `ChildOf` edge in the world.
+    fn collect_childof_edges(&self) -> Vec<(Entity, Entity)> {
+        let mut edges = Vec::new();
+        for a in 0..self.archetypes.len() {
+            let arch = self.archetypes.get(ArchetypeId(a as u32));
+            let parent = arch.signature().iter().find_map(|&id| {
+                let rel = self.registry.info(id).relation?;
+                (rel.relation == ChildOf::KEY).then_some(rel.target)
+            });
+            let Some(parent) = parent else {
+                continue;
+            };
+            for &chunk in &arch.chunks {
+                for row in 0..self.chunks.len(chunk) {
+                    let child = unsafe { ops::entity_at(&self.chunks, &arch.layout, chunk, row) };
+                    edges.push((child, parent));
+                }
+            }
+        }
+        edges
     }
 
     /// Every live entity whose signature contains `id`.
@@ -1520,16 +1637,56 @@ mod tests {
     }
 
     #[test]
-    fn despawn_terminates_on_a_relation_cycle() {
+    fn relate_rejects_a_cycle() {
         let mut world = World::new();
         let a = world.spawn((A(1),));
         let b = world.spawn((A(2),));
-        // A malformed graph: a is b's child and b is a's child.
         world.relate::<ChildOf>(a, b);
-        world.relate::<ChildOf>(b, a);
-        assert!(world.despawn(a));
-        assert!(!world.is_alive(a));
-        assert!(!world.is_alive(b), "the cycle guard still despawns the reachable set");
+        assert!(!world.relate::<ChildOf>(b, a), "b under a would close a loop");
+        assert_eq!(world.related::<ChildOf>(b), None);
+        assert!(!world.relate::<ChildOf>(a, a), "an entity cannot be its own parent");
+    }
+
+    #[test]
+    fn depth_counts_edges_to_the_root() {
+        let mut world = World::new();
+        let root = world.spawn((A(0),));
+        let mid = world.spawn((A(1),));
+        let leaf = world.spawn((A(2),));
+        world.relate::<ChildOf>(mid, root);
+        world.relate::<ChildOf>(leaf, mid);
+        assert_eq!(world.depth::<ChildOf>(root), 0);
+        assert_eq!(world.depth::<ChildOf>(mid), 1);
+        assert_eq!(world.depth::<ChildOf>(leaf), 2);
+        // Re-parenting the middle node shifts the leaf below it.
+        world.unrelate::<ChildOf>(mid);
+        assert_eq!(world.depth::<ChildOf>(mid), 0);
+        assert_eq!(world.depth::<ChildOf>(leaf), 1);
+    }
+
+    #[test]
+    fn hierarchy_levels_group_by_depth() {
+        let mut world = World::new();
+        let root = world.spawn((A(0),));
+        let a = world.spawn((A(1),));
+        let b = world.spawn((A(2),));
+        let leaf = world.spawn((A(3),));
+        world.relate::<ChildOf>(a, root);
+        world.relate::<ChildOf>(b, root);
+        world.relate::<ChildOf>(leaf, a);
+
+        let levels: Vec<Vec<Entity>> = world.hierarchy_levels().to_vec();
+        assert_eq!(levels.len(), 3);
+        assert_eq!(levels[0], vec![root]);
+        let mut want = vec![a, b];
+        want.sort_unstable();
+        assert_eq!(levels[1], want);
+        assert_eq!(levels[2], vec![leaf]);
+
+        // Despawning a child shrinks its level on the next rebuild.
+        world.despawn(b);
+        let levels = world.hierarchy_levels();
+        assert_eq!(levels[1], vec![a], "b is gone");
     }
 
     #[test]

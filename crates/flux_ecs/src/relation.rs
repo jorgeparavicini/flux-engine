@@ -10,6 +10,10 @@ use crate::entity::Entity;
 pub trait Relation: 'static {
     /// This relation's stable identity, shared by all of its pairs.
     const KEY: ComponentKey;
+
+    /// When true, `relate` refuses an edge that would form a cycle, keeping
+    /// the relation a forest so depth is well-defined.
+    const ACYCLIC: bool = false;
 }
 
 /// The parent link. `relate::<ChildOf>(child, parent)` records that `child`
@@ -18,6 +22,7 @@ pub struct ChildOf;
 
 impl Relation for ChildOf {
     const KEY: ComponentKey = ComponentKey::from_path("flux_ecs::ChildOf");
+    const ACYCLIC: bool = true;
 }
 
 /// What a relation-pair component id stands for.

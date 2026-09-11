@@ -56,8 +56,45 @@ impl RefWorld {
         if !self.is_alive(entity) || !self.is_alive(target) {
             return false;
         }
+        if self.related::<R>(entity) == Some(target) {
+            return true;
+        }
+        if R::ACYCLIC && self.is_r_ancestor::<R>(entity, target) {
+            return false;
+        }
         self.relations.entry(entity).or_default().insert(R::KEY, target);
         true
+    }
+
+    /// The number of `R` edges from `entity` up to a root.
+    pub fn depth<R: Relation>(&self, entity: Entity) -> u32 {
+        let mut depth = 0;
+        let mut visited = HashSet::new();
+        visited.insert(entity);
+        let mut current = self.related::<R>(entity);
+        while let Some(parent) = current {
+            if !visited.insert(parent) {
+                break;
+            }
+            depth += 1;
+            current = self.related::<R>(parent);
+        }
+        depth
+    }
+
+    fn is_r_ancestor<R: Relation>(&self, ancestor: Entity, descendant: Entity) -> bool {
+        let mut visited = HashSet::new();
+        let mut current = Some(descendant);
+        while let Some(entity) = current {
+            if entity == ancestor {
+                return true;
+            }
+            if !visited.insert(entity) {
+                break;
+            }
+            current = self.related::<R>(entity);
+        }
+        false
     }
 
     pub fn unrelate<R: Relation>(&mut self, entity: Entity) -> bool {
