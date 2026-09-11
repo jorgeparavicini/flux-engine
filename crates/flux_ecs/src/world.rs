@@ -8,6 +8,13 @@ use crate::storage::chunks::{ChunkId, Chunks};
 use crate::storage::ops;
 use crate::{Bundle, Component, Entities, Entity, Query, QueryState};
 
+/// A reactive callback run during a structural change.
+///
+/// Registered through [`Component::ON_ADD`] / [`Component::ON_REMOVE`], it
+/// receives the world and the entities whose component set just changed, one
+/// slice per structural change rather than one call per entity.
+pub type Hook = fn(&mut World, &[Entity]);
+
 /// A collection of entities and their components.
 ///
 /// ```
@@ -108,12 +115,46 @@ impl World {
         slot.row = row;
         self.version += 1;
         self.stamp_all_columns(chunk, arch_id, true);
+
+        for &id in &signature {
+            self.fire_on_add(id, &[entity]);
+        }
+    }
+
+    /// Runs `id`'s add hook, if any, over `entities`.
+    fn fire_on_add(&mut self, id: ComponentId, entities: &[Entity]) {
+        let hook = self.registry.info(id).on_add;
+        if let Some(hook) = hook {
+            hook(self, entities);
+        }
+    }
+
+    /// Runs `id`'s remove hook, if any, over `entities`.
+    fn fire_on_remove(&mut self, id: ComponentId, entities: &[Entity]) {
+        let hook = self.registry.info(id).on_remove;
+        if let Some(hook) = hook {
+            hook(self, entities);
+        }
     }
 
     /// Despawns `entity`, dropping all of its components.
     ///
     /// Returns false on a dead or stale handle, leaving the world unchanged.
     pub fn despawn(&mut self, entity: Entity) -> bool {
+        let Some(slot) = self.entities.slot(entity) else {
+            return false;
+        };
+        let arch_id = self.chunks.archetype(ChunkId(slot.chunk));
+        let signature: Vec<ComponentId> = self.archetypes.get(arch_id).signature().to_vec();
+        if signature
+            .iter()
+            .any(|&id| self.registry.info(id).on_remove.is_some())
+        {
+            for &id in &signature {
+                self.fire_on_remove(id, &[entity]);
+            }
+        }
+        // A hook may have moved or already despawned the entity; re-resolve.
         let Some(slot) = self.entities.slot(entity) else {
             return false;
         };
@@ -281,6 +322,7 @@ impl World {
         self.fix_swapped_slot(swapped, chunk, row);
         self.version += 1;
         self.stamp_all_columns(dst_chunk, dst_id, true);
+        self.fire_on_add(id, &[entity]);
         true
     }
 
@@ -317,6 +359,9 @@ impl World {
         // Deterministic group order (archetype id) for stable results.
         let mut group_keys: Vec<ArchetypeId> = groups.keys().copied().collect();
         group_keys.sort();
+        // Entities that gain `T` through the bulk path; hooked once at the end
+        // so the add hook sees a single slice rather than one call per entity.
+        let mut added: Vec<Entity> = Vec::new();
         for src_id in group_keys {
             let items = groups.remove(&src_id).expect("key present");
             let src_chunks = self.archetypes.get(src_id).chunks.clone();
@@ -380,6 +425,7 @@ impl World {
                     slot.chunk = dst_chunk.0;
                     slot.row = dst_row;
                     touched.insert(dst_chunk);
+                    added.push(entity);
                 }
             }
             // Retire the emptied source chunks.
@@ -397,14 +443,23 @@ impl World {
                 }
             }
         }
+        if !added.is_empty() {
+            self.fire_on_add(id, &added);
+        }
     }
 
     /// Takes `T` off `entity` and returns it.
     ///
     /// None if the entity is dead or does not have the component.
     pub fn remove<T: Component>(&mut self, entity: Entity) -> Option<T> {
-        let (chunk, row, column, arch_id) = self.locate::<T>(entity)?;
+        let mut located = self.locate::<T>(entity)?;
         let id = self.registry.lookup(T::KEY).expect("located above");
+        if self.registry.info(id).on_remove.is_some() {
+            self.fire_on_remove(id, &[entity]);
+            // The hook may have moved or already removed the component.
+            located = self.locate::<T>(entity)?;
+        }
+        let (chunk, row, column, arch_id) = located;
         let arch = self.archetypes.get(arch_id);
         let value = unsafe {
             ops::component_ptr(&self.chunks, &arch.layout, &self.registry, chunk, column, row)
@@ -659,7 +714,7 @@ impl Drop for World {
 mod tests {
     use super::*;
     use crate::component::{Component, ComponentKey, StorageClass};
-    use std::cell::Cell;
+    use std::cell::{Cell, RefCell};
     use std::rc::Rc;
 
     macro_rules! component {
@@ -1109,5 +1164,106 @@ mod tests {
                 "entity {i} kept its enabled state through the batch insert"
             );
         }
+    }
+
+    // --------------------------------------------------------------- hooks
+
+    thread_local! {
+        static ADDED: RefCell<Vec<Vec<Entity>>> = const { RefCell::new(Vec::new()) };
+        static REMOVED: RefCell<Vec<Vec<Entity>>> = const { RefCell::new(Vec::new()) };
+        static REMOVE_SAW: RefCell<Vec<u32>> = const { RefCell::new(Vec::new()) };
+    }
+
+    fn reset_hook_log() {
+        ADDED.with(|l| l.borrow_mut().clear());
+        REMOVED.with(|l| l.borrow_mut().clear());
+        REMOVE_SAW.with(|l| l.borrow_mut().clear());
+    }
+
+    #[derive(Copy, Clone, PartialEq, Debug)]
+    struct Tracked(u32);
+    impl Component for Tracked {
+        const KEY: ComponentKey = ComponentKey::from_path("world::tests::Tracked");
+        const ON_ADD: Option<Hook> =
+            Some(|_w, es| ADDED.with(|l| l.borrow_mut().push(es.to_vec())));
+        const ON_REMOVE: Option<Hook> = Some(|w, es| {
+            REMOVED.with(|l| l.borrow_mut().push(es.to_vec()));
+            for &e in es {
+                if let Some(t) = w.get::<Tracked>(e) {
+                    REMOVE_SAW.with(|v| v.borrow_mut().push(t.0));
+                }
+            }
+        });
+    }
+
+    #[derive(Copy, Clone)]
+    struct AutoMark;
+    impl Component for AutoMark {
+        const KEY: ComponentKey = ComponentKey::from_path("world::tests::AutoMark");
+        const STORAGE: StorageClass = StorageClass::Tag;
+        const ON_ADD: Option<Hook> = Some(|w, es| {
+            for &e in es {
+                w.insert(e, B(9));
+            }
+        });
+    }
+
+    #[test]
+    fn hooks_fire_on_spawn_and_remove() {
+        reset_hook_log();
+        let mut world = World::new();
+        let e = world.spawn((Tracked(7),));
+        assert_eq!(ADDED.with(|l| l.borrow().clone()), vec![vec![e]]);
+
+        assert_eq!(world.remove::<Tracked>(e), Some(Tracked(7)));
+        assert_eq!(REMOVED.with(|l| l.borrow().clone()), vec![vec![e]]);
+        assert_eq!(
+            REMOVE_SAW.with(|l| l.borrow().clone()),
+            vec![7],
+            "the remove hook saw the live value before removal"
+        );
+    }
+
+    #[test]
+    fn insert_fires_on_add() {
+        reset_hook_log();
+        let mut world = World::new();
+        let e = world.spawn((A(1),));
+        world.insert(e, Tracked(3));
+        assert_eq!(ADDED.with(|l| l.borrow().clone()), vec![vec![e]]);
+    }
+
+    #[test]
+    fn insert_batch_fires_one_add_slice() {
+        reset_hook_log();
+        let mut world = World::new();
+        let entities: Vec<Entity> = (0..100u64).map(|i| world.spawn((A(i),))).collect();
+        let batch: Vec<(Entity, Tracked)> = entities.iter().map(|&e| (e, Tracked(0))).collect();
+        world.insert_batch(batch);
+
+        let added = ADDED.with(|l| l.borrow().clone());
+        assert_eq!(added.len(), 1, "one slice for the whole batch, not one per entity");
+        let mut got = added[0].clone();
+        got.sort_by_key(Entity::index);
+        let mut want = entities.clone();
+        want.sort_by_key(Entity::index);
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn on_add_hook_can_mutate_the_world() {
+        let mut world = World::new();
+        let e = world.spawn((A(1), AutoMark));
+        assert_eq!(world.get::<B>(e), Some(&B(9)), "the add hook inserted B");
+    }
+
+    #[test]
+    fn despawn_fires_on_remove() {
+        reset_hook_log();
+        let mut world = World::new();
+        let e = world.spawn((Tracked(5), A(1)));
+        assert!(world.despawn(e));
+        assert_eq!(REMOVED.with(|l| l.borrow().clone()), vec![vec![e]]);
+        assert_eq!(REMOVE_SAW.with(|l| l.borrow().clone()), vec![5]);
     }
 }

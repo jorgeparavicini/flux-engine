@@ -42,6 +42,8 @@ pub(crate) struct ComponentInfo {
     pub storage: StorageClass,
     pub non_send: bool,
     pub toggleable: bool,
+    pub on_add: Option<crate::world::Hook>,
+    pub on_remove: Option<crate::world::Hook>,
     #[cfg(debug_assertions)]
     type_id: std::any::TypeId,
 }
@@ -96,6 +98,8 @@ impl Registry {
             storage: T::STORAGE,
             non_send: T::NON_SEND,
             toggleable: T::TOGGLEABLE,
+            on_add: T::ON_ADD,
+            on_remove: T::ON_REMOVE,
             #[cfg(debug_assertions)]
             type_id: std::any::TypeId::of::<T>(),
         });

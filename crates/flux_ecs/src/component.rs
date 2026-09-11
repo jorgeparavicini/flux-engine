@@ -76,6 +76,14 @@ pub trait Component: 'static {
     /// Whether presence can be toggled per entity without an archetype move.
     /// Set by `#[component(toggleable)]`.
     const TOGGLEABLE: bool = false;
+
+    /// Called after this component is added to one or more entities, with the
+    /// affected entities as a single slice per structural change.
+    const ON_ADD: Option<crate::world::Hook> = None;
+
+    /// Called before this component is removed from one or more entities,
+    /// while they still hold it, with the affected entities as a single slice.
+    const ON_REMOVE: Option<crate::world::Hook> = None;
 }
 
 #[diagnostic::on_unimplemented(
