@@ -14,6 +14,26 @@ pub trait System {
     fn run(&mut self, world: &mut World);
 
     fn name(&self) -> &str;
+
+    /// Initializes parameter state; must precede any [`run_deferred`].
+    ///
+    /// [`run_deferred`]: System::run_deferred
+    fn initialize(&mut self, world: &mut World);
+
+    /// Fetches parameters against a shared world view and calls the function,
+    /// leaving deferred work queued. Does not touch the world version or apply
+    /// commands. [`initialize`](System::initialize) must have run first.
+    ///
+    /// # Safety
+    ///
+    /// No system whose access conflicts with this one's may run concurrently,
+    /// and the world must not be structurally mutated for the duration.
+    unsafe fn run_deferred(&mut self, cells: &WorldCells<'_>, version: u64);
+
+    /// Applies (on success) or drops (on failure) the work queued by the most
+    /// recent [`run_deferred`](System::run_deferred), panicking on a failed
+    /// run. Serial.
+    fn apply_deferred(&mut self, world: &mut World);
 }
 
 /// Conversion of plain functions into systems.
@@ -86,6 +106,8 @@ pub struct FunctionSystem<Func, Params: ParamSet, Out> {
     func: Func,
     /// Initialized on the first run.
     state: Option<Params::States>,
+    /// Outcome of the last `run_deferred`, consumed by `apply_deferred`.
+    last_outcome: Result<(), String>,
     access: AccessList,
     _params: PhantomData<fn(Params) -> Out>,
 }
@@ -101,31 +123,40 @@ where
     }
 
     fn run(&mut self, world: &mut World) {
-        if self.state.is_none() {
-            self.state = Some(Params::init(world));
-        }
+        self.initialize(world);
         let version = world.bump_version();
-        let outcome = {
-            let cells = world.cells();
-            let states = self.state.as_mut().expect("initialized above");
-            // SAFETY: into_system rejected conflicting parameter sets at
-            // compile time, and the exclusive world borrow excludes all
-            // other access.
-            unsafe { self.func.call(states, &cells, version) }
-        };
-        let states = self.state.as_mut().expect("initialized above");
-        match outcome.into_result() {
-            Ok(()) => Params::apply(states, world),
-            Err(message) => {
-                // A failed system has no effects: its deferred work is dropped.
-                Params::discard(states);
-                panic!("system `{}` failed: {message}", self.name());
-            }
-        }
+        // SAFETY: serial execution — nothing else accesses the world.
+        unsafe { self.run_deferred(&world.cells(), version) };
+        self.apply_deferred(world);
     }
 
     fn name(&self) -> &str {
         std::any::type_name::<Func>()
+    }
+
+    fn initialize(&mut self, world: &mut World) {
+        if self.state.is_none() {
+            self.state = Some(Params::init(world));
+        }
+    }
+
+    unsafe fn run_deferred(&mut self, cells: &WorldCells<'_>, version: u64) {
+        let states = self.state.as_mut().expect("initialize before run_deferred");
+        // SAFETY: the caller guarantees no conflicting access runs
+        // concurrently and no structural mutation occurs.
+        let outcome = unsafe { self.func.call(states, cells, version) };
+        self.last_outcome = outcome.into_result();
+    }
+
+    fn apply_deferred(&mut self, world: &mut World) {
+        let states = self.state.as_mut().expect("initialized above");
+        match std::mem::replace(&mut self.last_outcome, Ok(())) {
+            Ok(()) => Params::apply(states, world),
+            Err(message) => {
+                Params::discard(states);
+                panic!("system `{}` failed: {message}", self.name());
+            }
+        }
     }
 }
 
@@ -147,6 +178,7 @@ where
         FunctionSystem {
             func: self,
             state: None,
+            last_outcome: Ok(()),
             access: Params::ACCESS,
             _params: PhantomData,
         }

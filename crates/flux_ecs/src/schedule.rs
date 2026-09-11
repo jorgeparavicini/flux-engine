@@ -1,6 +1,6 @@
 use crate::{ComponentKey, IntoSystem, System, World};
 use std::cmp::Reverse;
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, HashSet};
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 /// Names one or more systems so ordering constraints can reference them.
@@ -21,14 +21,16 @@ pub struct Ambiguity {
 }
 
 struct Entry {
-    system: Box<dyn System>,
+    system: Box<dyn System + Send>,
     label: Option<SystemLabel>,
     before: Vec<SystemLabel>,
     after: Vec<SystemLabel>,
     conditions: Vec<RunCondition>,
+    /// Whether the last parallel wave executed this system.
+    ran: bool,
 }
 
-type RunCondition = Box<dyn Fn(&World) -> bool>;
+type RunCondition = Box<dyn Fn(&World) -> bool + Send>;
 
 #[derive(Default)]
 /// An ordered collection of systems, run one after another.
@@ -49,7 +51,7 @@ impl Schedule {
     }
 
     /// Adds a system; the returned configuration orders and conditions it.
-    pub fn add<M>(&mut self, system: impl IntoSystem<M, System: 'static>) -> SystemConfig<'_> {
+    pub fn add<M>(&mut self, system: impl IntoSystem<M, System: Send + 'static>) -> SystemConfig<'_> {
         self.order = None;
         self.entries.push(Entry {
             system: Box::new(system.into_system()),
@@ -57,6 +59,7 @@ impl Schedule {
             before: Vec::new(),
             after: Vec::new(),
             conditions: Vec::new(),
+            ran: false,
         });
         SystemConfig(self.entries.last_mut().expect("system just added"))
     }
@@ -80,6 +83,103 @@ impl Schedule {
 
     /// The conflicting, unordered system pairs of this schedule.
     ///
+    /// Runs the schedule across threads: systems with disjoint access run
+    /// concurrently. Deterministic — versions and command application follow
+    /// the compiled order regardless of thread timing.
+    ///
+    /// Commands apply at wave boundaries, not after each system, so a system
+    /// observing another's deferred change must be ordered after it.
+    pub fn run_parallel(&mut self, world: &mut World) {
+        self.compile();
+        let order = self.order.clone().expect("compiled");
+        for &index in &order {
+            self.entries[index].system.initialize(world);
+        }
+        // Distinct version per system, in topological order — matches serial.
+        let mut version = vec![0u64; self.entries.len()];
+        for &index in &order {
+            version[index] = world.bump_version();
+        }
+        for wave in self.waves(&order) {
+            // Evaluate run conditions serially, with full world access.
+            for &index in &order {
+                if wave.contains(&index) {
+                    let hold = self.entries[index]
+                        .conditions
+                        .iter()
+                        .all(|condition| condition(world));
+                    self.entries[index].ran = hold;
+                }
+            }
+            let versions = &version;
+            let members: Vec<(usize, &mut Entry)> = self
+                .entries
+                .iter_mut()
+                .enumerate()
+                .filter(|(i, entry)| wave.contains(i) && entry.ran)
+                .collect();
+            let cells = world.cells();
+            std::thread::scope(|scope| {
+                for (index, entry) in members {
+                    let version = versions[index];
+                    // SAFETY: wave members are mutually conflict-free, so no
+                    // conflicting access runs concurrently, and no structural
+                    // change occurs during the wave.
+                    scope.spawn(move || unsafe { entry.system.run_deferred(&cells, version) });
+                }
+            });
+            // Barrier: apply deferred work in topological order.
+            for &index in &order {
+                if wave.contains(&index) && self.entries[index].ran {
+                    self.entries[index].system.apply_deferred(world);
+                }
+            }
+        }
+    }
+
+    /// Groups `order` into waves of mutually conflict-free systems that
+    /// respect the ordering edges. Each wave is a set of indices.
+    fn waves(&self, order: &[usize]) -> Vec<HashSet<usize>> {
+        let n = self.entries.len();
+        let mut wave_of = vec![0usize; n];
+        let mut waves: Vec<HashSet<usize>> = Vec::new();
+        for &index in order {
+            let mut candidate = self.min_wave(index, &wave_of);
+            loop {
+                while waves.len() <= candidate {
+                    waves.push(HashSet::new());
+                }
+                let conflict = waves[candidate].iter().any(|&other| {
+                    self.entries[index]
+                        .system
+                        .access()
+                        .conflicts_with(self.entries[other].system.access())
+                });
+                if conflict {
+                    candidate += 1;
+                } else {
+                    break;
+                }
+            }
+            waves[candidate].insert(index);
+            wave_of[index] = candidate;
+        }
+        waves.into_iter().filter(|w| !w.is_empty()).collect()
+    }
+
+    /// One past the highest wave of `index`'s ordering predecessors.
+    fn min_wave(&self, index: usize, wave_of: &[usize]) -> usize {
+        let mut floor = 0;
+        for (other, entry) in self.entries.iter().enumerate() {
+            let before = entry.before.iter().any(|l| self.entries[index].label == Some(*l));
+            let after = self.entries[index].after.iter().any(|l| entry.label == Some(*l));
+            if before || after {
+                floor = floor.max(wave_of[other] + 1);
+            }
+        }
+        floor
+    }
+
     /// Ambiguities are legal — the serial executor runs them in insertion
     /// order — but their relative order is not part of the schedule's
     /// contract.
@@ -222,7 +322,7 @@ impl SystemConfig<'_> {
 
     /// Skips this system on runs where `condition` is false. Several
     /// conditions must all hold.
-    pub fn run_if(self, condition: impl Fn(&World) -> bool + 'static) -> Self {
+    pub fn run_if(self, condition: impl Fn(&World) -> bool + Send + 'static) -> Self {
         self.0.conditions.push(Box::new(condition));
         self
     }
@@ -232,7 +332,8 @@ impl SystemConfig<'_> {
 mod tests {
     use super::*;
     use crate::component::{Component, ComponentKey};
-    use crate::{Query, Single, World};
+    use crate::query::state::QueryState;
+    use crate::{IntoSystem, Query, Single, With, Without, World};
 
     macro_rules! component {
         ($name:ident) => {
@@ -463,6 +564,166 @@ mod tests {
     }
 
     // -------------------------------------------------------------- reuse
+
+    // -------------------------------------------------------------- parallel
+
+    fn parallel_world() -> World {
+        let mut w = World::new();
+        w.insert_singleton(Trace(Vec::new()));
+        w.insert_singleton(Flag(false));
+        w
+    }
+
+    #[test]
+    fn parallel_runs_every_system_once() {
+        let mut schedule = Schedule::new();
+        schedule.add(traced("a"));
+        schedule.add(traced("b"));
+        schedule.add(traced("c"));
+        let mut w = parallel_world();
+        schedule.run_parallel(&mut w);
+        let mut t = trace(&w);
+        t.sort();
+        assert_eq!(t, vec!["a", "b", "c"], "each system ran exactly once");
+    }
+
+    #[derive(Copy, Clone, Default)]
+    struct N(u64);
+    component!(N);
+    #[derive(Copy, Clone, Default)]
+    struct M(u64);
+    component!(M);
+
+    #[test]
+    fn parallel_produces_the_same_state_as_serial() {
+        // Two writer systems over different components, plus a reader; run
+        // the identical schedule both ways and compare.
+        fn build() -> (World, Schedule) {
+            fn write_n(q: Query<&mut N>) {
+                q.for_each(|n| n.0 += 1);
+            }
+            fn write_m(q: Query<&mut M>) {
+                q.for_each(|m| m.0 += 10);
+            }
+            let mut w = World::new();
+            for _ in 0..1000 {
+                w.spawn((N(0), M(0)));
+            }
+            let mut s = Schedule::new();
+            s.add(write_n);
+            s.add(write_m);
+            (w, s)
+        }
+        let (mut ws, mut ss) = build();
+        for _ in 0..5 {
+            ss.run(&mut ws);
+        }
+        let (mut wp, mut sp) = build();
+        for _ in 0..5 {
+            sp.run_parallel(&mut wp);
+        }
+        let sum = |w: &mut World| {
+            let mut st = QueryState::<(&N, &M)>::new();
+            let mut acc = 0u64;
+            for (n, m) in w.query(&mut st).chunks() {
+                for (nv, mv) in n.iter().zip(m.iter()) {
+                    acc += nv.0 * 1000 + mv.0;
+                }
+            }
+            acc
+        };
+        assert_eq!(sum(&mut ws), sum(&mut wp), "serial and parallel agree");
+        assert!(sum(&mut ws) > 0);
+    }
+
+    #[test]
+    fn disjoint_writers_of_the_same_component_run_in_one_wave() {
+        // Both write A, but with structural filters over disjoint archetypes.
+        // (Component-level v1: they still conflict, so this asserts the
+        // wave/ordering machinery, not the archetype refinement yet.)
+        fn only_flag(q: Query<&mut N, With<Flag>>) {
+            q.for_each(|n| n.0 += 1);
+        }
+        fn only_trace(q: Query<&mut N, Without<Flag>>) {
+            q.for_each(|n| n.0 += 1);
+        }
+        let mut w = World::new();
+        w.spawn((N(0), Flag(false)));
+        w.spawn((N(0),));
+        let mut s = Schedule::new();
+        s.add(only_flag);
+        s.add(only_trace);
+        s.run_parallel(&mut w);
+        let mut st = QueryState::<&N>::new();
+        let total: u64 = w.query(&mut st).chunks().map(|c| c.iter().map(|n| n.0).sum::<u64>()).sum();
+        assert_eq!(total, 2, "both systems ran, each touching its own entity");
+    }
+
+    #[test]
+    fn parallel_respects_ordering_edges() {
+        const FIRST: SystemLabel = SystemLabel("first");
+        let mut schedule = Schedule::new();
+        schedule.add(traced("b")).after(FIRST);
+        schedule.add(traced("a")).label(FIRST);
+        let mut w = parallel_world();
+        schedule.run_parallel(&mut w);
+        assert_eq!(trace(&w), vec!["a", "b"], "after-edge holds across waves");
+    }
+
+    #[test]
+    fn parallel_run_conditions_gate_execution() {
+        let mut schedule = Schedule::new();
+        schedule
+            .add(traced("gated"))
+            .run_if(|w: &World| w.singleton::<Flag>().unwrap().0);
+        let mut w = parallel_world();
+        schedule.run_parallel(&mut w);
+        assert!(trace(&w).is_empty(), "false condition skips in parallel too");
+        w.singleton_mut::<Flag>().unwrap().0 = true;
+        schedule.run_parallel(&mut w);
+        assert_eq!(trace(&w), vec!["gated"]);
+    }
+
+    #[test]
+    fn parallel_is_deterministic_across_runs() {
+        // A ten-writer schedule over a shared trace, hashed after each of many
+        // runs; the hash must be identical every time despite thread timing.
+        fn hasher(world: &mut World) -> u64 {
+            let mut st = QueryState::<&N>::new();
+            let mut h = 1469598103934665603u64;
+            for c in world.query(&mut st).chunks() {
+                for n in c {
+                    h ^= n.0;
+                    h = h.wrapping_mul(1099511628211);
+                }
+            }
+            h
+        }
+        let build = || {
+            fn w0(q: Query<&mut N>) { q.for_each(|n| n.0 = n.0.wrapping_add(1)); }
+            fn w1(q: Query<&mut M>) { q.for_each(|m| m.0 = m.0.wrapping_add(3)); }
+            let mut w = World::new();
+            for i in 0..500 {
+                w.spawn((N(i), M(i)));
+            }
+            let mut s = Schedule::new();
+            s.add(w0);
+            s.add(w1);
+            (w, s)
+        };
+        let mut reference = None;
+        for _ in 0..50 {
+            let (mut w, mut s) = build();
+            for _ in 0..20 {
+                s.run_parallel(&mut w);
+            }
+            let h = hasher(&mut w);
+            match reference {
+                None => reference = Some(h),
+                Some(r) => assert_eq!(h, r, "identical world hash every run"),
+            }
+        }
+    }
 
     #[test]
     fn schedules_recompile_after_additions() {

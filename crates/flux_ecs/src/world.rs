@@ -33,6 +33,7 @@ pub struct World {
 }
 
 /// Shared view of a world during one system run: what parameters fetch from.
+#[derive(Copy, Clone)]
 pub struct WorldCells<'w> {
     pub(crate) chunks: &'w Chunks,
     pub(crate) archetypes: &'w Archetypes,

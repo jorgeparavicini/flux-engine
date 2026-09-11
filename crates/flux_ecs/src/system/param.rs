@@ -344,23 +344,23 @@ enum Command {
 }
 
 /// Type-erased bundle payload of a queued spawn.
-trait AnyBundle {
+trait AnyBundle: Send {
     fn spawn_reserved(self: Box<Self>, world: &mut World, entity: Entity);
 }
 
-impl<B: crate::Bundle + 'static> AnyBundle for B {
+impl<B: crate::Bundle + Send + 'static> AnyBundle for B {
     fn spawn_reserved(self: Box<Self>, world: &mut World, entity: Entity) {
         world.spawn_reserved(entity, *self);
     }
 }
 
 /// Type-erased component payload of a queued insert.
-trait AnyComponent {
+trait AnyComponent: Send {
     fn insert_into(self: Box<Self>, world: &mut World, entity: Entity);
     fn insert_singleton_into(self: Box<Self>, world: &mut World);
 }
 
-impl<T: Component> AnyComponent for T {
+impl<T: Component + Send> AnyComponent for T {
     fn insert_into(self: Box<Self>, world: &mut World, entity: Entity) {
         world.insert(entity, *self);
     }
@@ -395,7 +395,7 @@ impl Commands<'_> {
     ///
     /// The id is usable immediately — for instance in further commands — but
     /// the entity is alive only once the commands apply.
-    pub fn spawn<B: crate::Bundle + 'static>(&mut self, bundle: B) -> Entity {
+    pub fn spawn<B: crate::Bundle + Send + 'static>(&mut self, bundle: B) -> Entity {
         let entity = self.queue.reserve();
         self.queue.commands.push(Command::Spawn {
             entity,
@@ -410,7 +410,7 @@ impl Commands<'_> {
     }
 
     /// Adds `value` to `entity`, or replaces the entity's existing `T`.
-    pub fn insert<T: Component>(&mut self, entity: Entity, value: T) {
+    pub fn insert<T: Component + Send>(&mut self, entity: Entity, value: T) {
         self.queue.commands.push(Command::Insert {
             entity,
             value: Box::new(value),
@@ -429,7 +429,7 @@ impl Commands<'_> {
     }
 
     /// Spawns or replaces the world's single `T`.
-    pub fn insert_singleton<T: Component>(&mut self, value: T) {
+    pub fn insert_singleton<T: Component + Send>(&mut self, value: T) {
         self.queue.commands.push(Command::InsertSingleton {
             value: Box::new(value),
         });
