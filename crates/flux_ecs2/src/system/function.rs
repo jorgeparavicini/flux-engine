@@ -12,6 +12,8 @@ pub trait System {
     /// Runs once: initializes parameter state on first use, advances the
     /// world version, and calls the function with freshly fetched parameters.
     fn run(&mut self, world: &mut World);
+
+    fn name(&self) -> &str;
 }
 
 /// Conversion of plain functions into systems.
@@ -83,6 +85,10 @@ where
         // SAFETY: into_system rejected conflicting parameter sets at compile
         // time, and the exclusive world borrow excludes all other access.
         unsafe { self.func.call(states, &cells, version) };
+    }
+
+    fn name(&self) -> &str {
+        std::any::type_name::<Func>()
     }
 }
 
