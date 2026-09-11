@@ -333,7 +333,7 @@ mod tests {
     use super::*;
     use crate::component::{Component, ComponentKey};
     use crate::query::state::QueryState;
-    use crate::{IntoSystem, Query, Single, With, Without, World};
+    use crate::{Query, Single, With, Without, World};
 
     macro_rules! component {
         ($name:ident) => {
