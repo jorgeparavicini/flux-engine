@@ -34,6 +34,24 @@ redemption primitive.
 - Trigger: the parallel executor. Not before — atomics on the serial path
   are pure cost.
 
+## Intra-system parallelism: explicit, not automatic tiling
+
+`Query::par_for_each` splits a query's matched chunks across threads. The
+design envisioned *automatic* tiles — the executor splitting any system by
+chunk range — but that is unsound for opaque function-systems (one keeping
+cross-row state would be run wrongly over N ranges). par_for_each's
+`Fn + Sync` bound enforces per-row purity, making the split sound; it is the
+mechanism every production ECS uses. Measured scaling on 12 cores: ~7.4x on
+a compute-bound 1M-row kernel, ~5.8x on a bandwidth-bound one (the ceiling
+is the workload's arithmetic intensity, not the executor).
+
+- Automatic tiling would need a kernel-style system model (systems expressed
+  as per-chunk functions the executor can re-invoke over ranges) — a larger
+  change than the current function-system design, deferred as its own effort.
+- The cost-model / over-splitting concern from the roadmap does not arise:
+  splitting is opt-in per call, so a system that does not call par_for_each
+  has zero parallel overhead.
+
 ## Parallel executor: refined access recomputed every wave
 
 `run_parallel` recomputes each not-yet-run system's refined access (refresh

@@ -20,6 +20,66 @@ pub struct Query<'w, 's, D: QueryData, F: QueryFilter = ()> {
 }
 
 impl<'w, 's, D: QueryData, F: QueryFilter> Query<'w, 's, D, F> {
+    /// Calls `f` on every matched row, splitting the matched chunks across
+    /// threads.
+    ///
+    /// The `Fn + Sync` bound forbids per-row state kept across rows, so the
+    /// split is sound and the result is independent of how rows are
+    /// distributed. Disjoint chunks give disjoint column slices.
+    pub fn par_for_each<Fun>(self, f: Fun)
+    where
+        Fun: Fn(D::Item<'_>) + Sync,
+        for<'a> D::Columns<'a>: Send,
+    {
+        // Gather the (archetype, chunk) work items.
+        let mut work: Vec<(crate::storage::archetype::ArchetypeId, crate::storage::chunks::ChunkId)> =
+            Vec::new();
+        for &arch_id in self.state.matched() {
+            for &chunk in &self.archetypes.get(arch_id).chunks {
+                work.push((arch_id, chunk));
+            }
+        }
+        if work.is_empty() {
+            return;
+        }
+        let threads = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1)
+            .min(work.len());
+        let group = work.len().div_ceil(threads);
+        let version = self.grant.version();
+        let (chunks, archetypes, reg) = (self.chunks, self.archetypes, self.reg);
+        let f = &f;
+        std::thread::scope(|scope| {
+            for slice in work.chunks(group) {
+                scope.spawn(move || {
+                    // Each thread mints its own grant; disjoint chunks make the
+                    // fetched slices non-aliasing.
+                    let mut grant = AccessGrant::at_version(D::ACCESS, version);
+                    for &(arch_id, chunk) in slice {
+                        let arch = archetypes.get(arch_id);
+                        let view = ChunkView {
+                            chunks,
+                            layout: &arch.layout,
+                            reg,
+                            chunk,
+                        };
+                        let Some(plan) = D::plan(&arch.layout, reg) else {
+                            continue;
+                        };
+                        // SAFETY: this thread owns a disjoint set of chunks, so
+                        // its column slices alias no other thread's.
+                        if let Some(mut columns) = unsafe { D::fetch(&view, plan, &mut grant) } {
+                            for row in 0..view.len() {
+                                f(D::row(&mut columns, row));
+                            }
+                        }
+                    }
+                });
+            }
+        });
+    }
+
     /// Iterates the matched chunks, yielding each chunk's columns.
     pub fn chunks(self) -> ChunkIter<'w, 's, D, F> {
         ChunkIter {
@@ -216,6 +276,50 @@ mod tests {
         let mut seen = 0;
         world.query(&mut changed).for_each(|a| seen += a.0);
         assert_eq!(seen, 20, "change filter applies to row iteration too");
+    }
+
+    #[test]
+    fn par_for_each_matches_serial_for_each() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        let mut world = World::new();
+        for i in 0..10_000u64 {
+            world.spawn((A(i),));
+        }
+        let serial = {
+            let mut st = QueryState::<&A>::new();
+            let mut sum = 0u64;
+            world.query(&mut st).for_each(|a| sum += a.0);
+            sum
+        };
+        let parallel = {
+            let mut st = QueryState::<&A>::new();
+            let sum = AtomicU64::new(0);
+            world.query(&mut st).par_for_each(|a| {
+                sum.fetch_add(a.0, Ordering::Relaxed);
+            });
+            sum.into_inner()
+        };
+        assert_eq!(serial, parallel);
+        assert!(serial > 0);
+    }
+
+    #[test]
+    fn par_for_each_mutations_land_on_every_row() {
+        let mut world = World::new();
+        let entities: Vec<_> = (0..5_000u64).map(|i| world.spawn((A(i),))).collect();
+        let mut st = QueryState::<&mut A>::new();
+        world.query(&mut st).par_for_each(|a| a.0 *= 2);
+        for (i, e) in entities.iter().enumerate() {
+            assert_eq!(world.get::<A>(*e), Some(&A(i as u64 * 2)));
+        }
+    }
+
+    #[test]
+    fn par_for_each_on_no_matches_is_a_noop() {
+        let mut world = World::new();
+        world.spawn((B(0),));
+        let mut st = QueryState::<&A>::new();
+        world.query(&mut st).par_for_each(|_| unreachable!("no A rows"));
     }
 
     #[test]
