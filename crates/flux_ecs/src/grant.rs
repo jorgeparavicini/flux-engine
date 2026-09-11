@@ -63,6 +63,7 @@ impl AccessGrant {
     }
 
     /// Releases all claims on `chunk`.
+    #[cfg(test)]
     #[cfg_attr(not(debug_assertions), allow(unused_variables))]
     pub(crate) fn release_chunk(&mut self, chunk: ChunkId) {
         #[cfg(debug_assertions)]
@@ -174,7 +175,6 @@ mod tests {
         arch: Archetype,
         chunk: ChunkId,
         a_col: usize,
-        b_col: usize,
     }
 
     impl Bench {
@@ -183,8 +183,8 @@ mod tests {
             let a = reg.register::<A>();
             let b = reg.register::<B>();
             let mut arch = Archetype::new(&[a, b], &reg).unwrap();
-            let mut chunks = Chunks::new();
-            let mut alloc = ChunkAlloc::new();
+            let mut chunks = Chunks::default();
+            let mut alloc = ChunkAlloc::default();
             let mut entities = Entities::new();
             let mut chunk = ChunkId(0);
             let sig = arch.signature().to_vec();
@@ -226,7 +226,6 @@ mod tests {
                 arch,
                 chunk,
                 a_col,
-                b_col,
             }
         }
     }

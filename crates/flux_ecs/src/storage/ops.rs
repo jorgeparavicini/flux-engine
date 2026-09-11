@@ -497,8 +497,8 @@ mod tests {
             let drop = reg.register::<DropCounter>();
             Self {
                 reg,
-                chunks: Chunks::new(),
-                alloc: ChunkAlloc::new(),
+                chunks: Chunks::default(),
+                alloc: ChunkAlloc::default(),
                 entities: Entities::new(),
                 a,
                 b,

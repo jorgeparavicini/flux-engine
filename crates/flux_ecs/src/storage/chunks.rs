@@ -49,10 +49,6 @@ unsafe impl Sync for Chunks {}
 unsafe impl Send for Chunks {}
 
 impl Chunks {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Allocates a block and binds a chunk id to it: `len` 0, all `columns`
     /// write stamps 0, `order_version` strictly greater than any earlier
     /// value this id has had. Recycles destroyed ids before growing.
@@ -121,6 +117,7 @@ impl Chunks {
         self.archetype[id.0 as usize]
     }
 
+    #[cfg(test)]
     pub fn order_version(&self, id: ChunkId) -> u64 {
         self.order_version[id.0 as usize]
     }
@@ -241,8 +238,8 @@ mod tests {
 
     #[test]
     fn create_assigns_dense_ids_and_fresh_metadata() {
-        let mut alloc = ChunkAlloc::new();
-        let mut chunks = Chunks::new();
+        let mut alloc = ChunkAlloc::default();
+        let mut chunks = Chunks::default();
 
         let a = chunks.create(&mut alloc, ARCH_A, 3);
         let b = chunks.create(&mut alloc, ARCH_B, 1);
@@ -274,8 +271,8 @@ mod tests {
 
     #[test]
     fn len_and_write_versions_are_per_chunk() {
-        let mut alloc = ChunkAlloc::new();
-        let mut chunks = Chunks::new();
+        let mut alloc = ChunkAlloc::default();
+        let mut chunks = Chunks::default();
         let a = chunks.create(&mut alloc, ARCH_A, 2);
         let b = chunks.create(&mut alloc, ARCH_A, 2);
 
@@ -296,8 +293,8 @@ mod tests {
 
     #[test]
     fn destroyed_id_is_recycled_with_fresh_life() {
-        let mut alloc = ChunkAlloc::new();
-        let mut chunks = Chunks::new();
+        let mut alloc = ChunkAlloc::default();
+        let mut chunks = Chunks::default();
 
         let old = chunks.create(&mut alloc, ARCH_A, 2);
         chunks.set_len(old, 5);
@@ -328,8 +325,8 @@ mod tests {
     fn order_version_survives_recycling_and_only_climbs() {
         // A cache that saw order_version = v for this id must never observe a
         // smaller-or-equal value afterwards unless the chunk is untouched.
-        let mut alloc = ChunkAlloc::new();
-        let mut chunks = Chunks::new();
+        let mut alloc = ChunkAlloc::default();
+        let mut chunks = Chunks::default();
 
         let id = chunks.create(&mut alloc, ARCH_A, 1);
         let v0 = chunks.order_version(id);
@@ -350,8 +347,8 @@ mod tests {
 
     #[test]
     fn ids_grow_only_after_free_list_is_drained() {
-        let mut alloc = ChunkAlloc::new();
-        let mut chunks = Chunks::new();
+        let mut alloc = ChunkAlloc::default();
+        let mut chunks = Chunks::default();
         let a = chunks.create(&mut alloc, ARCH_A, 1);
         let b = chunks.create(&mut alloc, ARCH_A, 1);
         let c = chunks.create(&mut alloc, ARCH_A, 1);
@@ -382,8 +379,8 @@ mod tests {
         ignore = "leaks the chunk block by design, which miri's leak checker rejects"
     )]
     fn destroying_a_non_empty_chunk_panics_in_debug() {
-        let mut alloc = ChunkAlloc::new();
-        let mut chunks = Chunks::new();
+        let mut alloc = ChunkAlloc::default();
+        let mut chunks = Chunks::default();
         let id = chunks.create(&mut alloc, ARCH_A, 1);
         chunks.set_len(id, 3);
         chunks.destroy(&mut alloc, id); // rows were never dropped: refuse
@@ -397,8 +394,8 @@ mod tests {
         ignore = "leaks the chunk block by design, which miri's leak checker rejects"
     )]
     fn double_destroy_panics_in_debug() {
-        let mut alloc = ChunkAlloc::new();
-        let mut chunks = Chunks::new();
+        let mut alloc = ChunkAlloc::default();
+        let mut chunks = Chunks::default();
         let id = chunks.create(&mut alloc, ARCH_A, 1);
         chunks.destroy(&mut alloc, id);
         chunks.destroy(&mut alloc, id);

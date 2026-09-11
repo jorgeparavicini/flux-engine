@@ -56,10 +56,6 @@ pub(crate) struct Archetypes {
 }
 
 impl Archetypes {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Returns the archetype with signature `ids`, creating it if absent.
     ///
     /// `ids` must be sorted ascending without duplicates and registered in
@@ -115,12 +111,14 @@ impl Archetypes {
         self.list.len()
     }
 
+    #[cfg(test)]
     pub fn is_empty(&self) -> bool {
         self.list.is_empty()
     }
 
     /// Increases exactly when an archetype is created. Compare a remembered
     /// value against the current one to detect archetypes added since.
+    #[cfg(test)]
     pub fn generation(&self) -> u32 {
         self.generation
     }
@@ -177,7 +175,7 @@ mod tests {
     #[test]
     fn same_signature_yields_same_archetype() {
         let (reg, [a, b, ..]) = setup();
-        let mut arch = Archetypes::new();
+        let mut arch = Archetypes::default();
         let first = arch.get_or_create(&[a, b], &reg).unwrap();
         let second = arch.get_or_create(&[a, b], &reg).unwrap();
         assert_eq!(first, second);
@@ -187,7 +185,7 @@ mod tests {
     #[test]
     fn different_signatures_yield_different_archetypes() {
         let (reg, [a, b, c, ..]) = setup();
-        let mut arch = Archetypes::new();
+        let mut arch = Archetypes::default();
         let ab = arch.get_or_create(&[a, b], &reg).unwrap();
         let ac = arch.get_or_create(&[a, c], &reg).unwrap();
         let abc = arch.get_or_create(&[a, b, c], &reg).unwrap();
@@ -206,7 +204,7 @@ mod tests {
         // Regression guard: the signature index is a direct map, never a
         // subset lattice. Five components must yield one archetype, not 2^5.
         let (reg, ids) = setup();
-        let mut arch = Archetypes::new();
+        let mut arch = Archetypes::default();
         arch.get_or_create(&ids, &reg).unwrap();
         assert_eq!(arch.len(), 1);
     }
@@ -215,7 +213,7 @@ mod tests {
     fn zst_membership_distinguishes_signatures() {
         let (mut reg, [a, ..]) = setup();
         let zst = reg.register::<Zst>();
-        let mut arch = Archetypes::new();
+        let mut arch = Archetypes::default();
         let plain = arch.get_or_create(&[a], &reg).unwrap();
         let tagged = arch.get_or_create(&[a, zst], &reg).unwrap();
         assert_ne!(plain, tagged, "tag components are part of the identity");
@@ -226,7 +224,7 @@ mod tests {
     fn layout_error_propagates_and_creates_nothing() {
         let (mut reg, _) = setup();
         let huge = reg.register::<Huge>();
-        let mut arch = Archetypes::new();
+        let mut arch = Archetypes::default();
         assert!(matches!(
             arch.get_or_create(&[huge], &reg),
             Err(LayoutError::EntityTooLarge)
@@ -240,7 +238,7 @@ mod tests {
     #[test]
     fn new_archetype_starts_empty_with_its_layout() {
         let (reg, [a, b, ..]) = setup();
-        let mut arch = Archetypes::new();
+        let mut arch = Archetypes::default();
         let id = arch.get_or_create(&[a, b], &reg).unwrap();
         let at = arch.get(id);
         assert_eq!(at.signature(), &[a, b]);
@@ -254,7 +252,7 @@ mod tests {
     #[test]
     fn get_mut_changes_persist() {
         let (reg, [a, b, ..]) = setup();
-        let mut arch = Archetypes::new();
+        let mut arch = Archetypes::default();
         let ab = arch.get_or_create(&[a, b], &reg).unwrap();
         let bee = arch.get_or_create(&[b], &reg).unwrap();
 
@@ -271,7 +269,7 @@ mod tests {
     #[test]
     fn generation_bumps_only_on_creation() {
         let (reg, [a, b, ..]) = setup();
-        let mut arch = Archetypes::new();
+        let mut arch = Archetypes::default();
         assert_eq!(arch.generation(), 0);
 
         arch.get_or_create(&[a], &reg).unwrap();
@@ -293,7 +291,7 @@ mod tests {
     #[test]
     fn get_pair_mut_returns_two_distinct_archetypes() {
         let (reg, [a, b, ..]) = setup();
-        let mut arch = Archetypes::new();
+        let mut arch = Archetypes::default();
         let first = arch.get_or_create(&[a], &reg).unwrap();
         let second = arch.get_or_create(&[a, b], &reg).unwrap();
 
@@ -312,7 +310,7 @@ mod tests {
     #[cfg(debug_assertions)]
     fn get_pair_mut_rejects_identical_ids() {
         let (reg, [a, ..]) = setup();
-        let mut arch = Archetypes::new();
+        let mut arch = Archetypes::default();
         let id = arch.get_or_create(&[a], &reg).unwrap();
         let _ = arch.get_pair_mut(id, id);
     }

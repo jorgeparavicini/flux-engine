@@ -41,8 +41,6 @@ pub(crate) struct ComponentInfo {
     pub size: usize,
     pub align: usize,
     pub drop_fn: Option<unsafe fn(*mut u8, usize)>,
-    pub storage: StorageClass,
-    pub non_send: bool,
     pub toggleable: bool,
     pub on_add: Option<crate::world::Hook>,
     pub on_remove: Option<crate::world::Hook>,
@@ -100,8 +98,6 @@ impl Registry {
             align: align_of::<T>(),
             drop_fn: std::mem::needs_drop::<T>()
                 .then_some(drop_in_place_n::<T> as unsafe fn(*mut u8, usize)),
-            storage: T::STORAGE,
-            non_send: T::NON_SEND,
             toggleable: T::TOGGLEABLE,
             on_add: T::ON_ADD,
             on_remove: T::ON_REMOVE,
@@ -132,8 +128,6 @@ impl Registry {
             size: 0,
             align: 1,
             drop_fn: None,
-            storage: StorageClass::Tag,
-            non_send: false,
             toggleable: false,
             on_add: None,
             on_remove: None,
@@ -310,18 +304,14 @@ mod tests {
     }
 
     #[test]
-    fn info_records_storage_class_and_non_send() {
+    fn tag_and_sparse_components_still_register() {
         let mut r = Registry::new();
-        let pos = r.register::<Pos>();
         let tag = r.register::<Marker>();
         let sparse = r.register::<Sparse>();
         let pinned = r.register::<Pinned>();
-
-        assert_eq!(r.info(pos).storage, StorageClass::Chunked);
-        assert!(!r.info(pos).non_send);
-        assert_eq!(r.info(tag).storage, StorageClass::Tag);
-        assert_eq!(r.info(sparse).storage, StorageClass::SparseSet);
-        assert!(r.info(pinned).non_send);
+        assert_eq!(r.info(tag).size, 0);
+        assert!(r.lookup(Sparse::KEY) == Some(sparse));
+        assert!(r.lookup(Pinned::KEY) == Some(pinned));
     }
 
     // ------------------------------------------------------------------ drop_fn

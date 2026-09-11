@@ -29,10 +29,6 @@ impl ChunkAlloc {
         Err(_) => panic!("failed to create layout for chunk allocation"),
     };
 
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     /// Hands out a [`CHUNK_SIZE`] block aligned to [`CHUNK_ALIGN`].
     pub fn alloc(&mut self) -> NonNull<u8> {
         self.live += 1;
@@ -58,11 +54,13 @@ impl ChunkAlloc {
     }
 
     /// Blocks currently handed out.
+    #[cfg(test)]
     pub fn live(&self) -> usize {
         self.live
     }
 
-    /// Highest `live()` ever observed.
+    /// Highest [`live`](Self::live) ever observed.
+    #[cfg(test)]
     pub fn peak(&self) -> usize {
         self.peak
     }
@@ -97,7 +95,7 @@ mod tests {
 
     #[test]
     fn blocks_are_aligned_and_writable_end_to_end() {
-        let mut a = ChunkAlloc::new();
+        let mut a = ChunkAlloc::default();
         let p = a.alloc();
         assert_eq!(p.as_ptr() as usize % 64, 0, "64-byte aligned (literal: not derived from the constant under test)");
         // Write and read back every byte; under miri this proves the block
@@ -115,7 +113,7 @@ mod tests {
 
     #[test]
     fn distinct_blocks_do_not_overlap() {
-        let mut a = ChunkAlloc::new();
+        let mut a = ChunkAlloc::default();
         let blocks: Vec<_> = (0..8u8).map(|_| a.alloc()).collect();
         unsafe {
             for (tag, p) in blocks.iter().enumerate() {
@@ -135,7 +133,7 @@ mod tests {
 
     #[test]
     fn live_and_peak_track_allocations() {
-        let mut a = ChunkAlloc::new();
+        let mut a = ChunkAlloc::default();
         assert_eq!((a.live(), a.peak()), (0, 0));
         let p1 = a.alloc();
         let p2 = a.alloc();
@@ -164,7 +162,7 @@ mod tests {
 
     #[test]
     fn freed_block_is_recycled_before_new_allocation() {
-        let mut a = ChunkAlloc::new();
+        let mut a = ChunkAlloc::default();
         let p = a.alloc();
         let addr = p.as_ptr() as usize;
         unsafe { a.dealloc(p) };
@@ -175,7 +173,7 @@ mod tests {
 
     #[test]
     fn churn_on_one_slot_reuses_one_block() {
-        let mut a = ChunkAlloc::new();
+        let mut a = ChunkAlloc::default();
         let mut seen = HashSet::new();
         for _ in 0..1_000 {
             let p = a.alloc();
@@ -196,7 +194,7 @@ mod tests {
             rng ^= rng << 17;
             rng
         };
-        let mut a = ChunkAlloc::new();
+        let mut a = ChunkAlloc::default();
         let mut held: Vec<_> = Vec::new();
         let mut addresses = HashSet::new();
         for _ in 0..2_000 {
@@ -226,7 +224,7 @@ mod tests {
     fn drop_with_everything_returned_frees_all_memory() {
         // The assertion here is miri's leak checker: if the free list is not
         // released in Drop, `cargo miri test` fails this test with a leak.
-        let mut a = ChunkAlloc::new();
+        let mut a = ChunkAlloc::default();
         let blocks: Vec<_> = (0..16).map(|_| a.alloc()).collect();
         for p in blocks {
             unsafe { a.dealloc(p) };
@@ -251,7 +249,7 @@ mod tests {
     )]
     #[cfg(debug_assertions)]
     fn dropping_with_live_blocks_panics_in_debug() {
-        let mut a = ChunkAlloc::new();
+        let mut a = ChunkAlloc::default();
         let p = a.alloc();
         let _ = p;
         drop(a); // one block still live: the debug assertion must fire
@@ -262,7 +260,7 @@ mod tests {
     #[cfg_attr(miri, ignore = "leaks on unwind by design; covered in debug builds without miri")]
     #[cfg(debug_assertions)]
     fn double_dealloc_panics_in_debug() {
-        let mut a = ChunkAlloc::new();
+        let mut a = ChunkAlloc::default();
         let p = a.alloc();
         unsafe {
             a.dealloc(p);

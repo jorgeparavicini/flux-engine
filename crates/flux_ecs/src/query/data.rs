@@ -65,8 +65,8 @@ pub unsafe trait QueryData {
 
     /// Fetches the columns through the grant, using a plan resolved for this
     /// chunk's archetype. None when the grant denies an access (a spent
-    /// claim included). May leave claims recorded on failure; callers
-    /// release per chunk.
+    /// claim included). Claims last for the grant's lifetime, so a grant
+    /// serves at most one mutable fetch per (chunk, component).
     ///
     /// # Safety
     ///
@@ -421,8 +421,8 @@ mod tests {
             let mut ids = vec![a, b, m];
             ids.sort();
             let mut arch = Archetype::new(&ids, &reg).unwrap();
-            let mut chunks = Chunks::new();
-            let mut alloc = ChunkAlloc::new();
+            let mut chunks = Chunks::default();
+            let mut alloc = ChunkAlloc::default();
             let mut slots = Entities::new();
             let mut chunk = ChunkId(0);
             let sig = arch.signature().to_vec();
