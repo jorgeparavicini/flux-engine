@@ -363,7 +363,26 @@ impl World {
         // so the add hook sees a single slice rather than one call per entity.
         let mut added: Vec<Entity> = Vec::new();
         for src_id in group_keys {
-            let items = groups.remove(&src_id).expect("key present");
+            let mut items = groups.remove(&src_id).expect("key present");
+            // Collapse duplicate entities, keeping the last value, so the
+            // coverage count below reflects distinct entities rather than
+            // insertions. A superseded value is dropped here, exactly as a
+            // repeated per-entity insert would drop it.
+            {
+                let mut seen: std::collections::HashMap<Entity, usize> =
+                    std::collections::HashMap::with_capacity(items.len());
+                let mut deduped: Vec<(Entity, T)> = Vec::with_capacity(items.len());
+                for (entity, value) in items {
+                    match seen.get(&entity) {
+                        Some(&idx) => deduped[idx] = (entity, value),
+                        None => {
+                            seen.insert(entity, deduped.len());
+                            deduped.push((entity, value));
+                        }
+                    }
+                }
+                items = deduped;
+            }
             let src_chunks = self.archetypes.get(src_id).chunks.clone();
             let arch_total: usize = src_chunks
                 .iter()
@@ -1164,6 +1183,28 @@ mod tests {
                 "entity {i} kept its enabled state through the batch insert"
             );
         }
+    }
+
+    #[test]
+    fn insert_batch_with_duplicate_entities_keeps_the_last_value() {
+        let mut world = World::new();
+        let a = world.spawn((A(1),));
+        let b = world.spawn((A(2),));
+        // `a` appears twice; the whole archetype is still covered.
+        world.insert_batch(vec![(a, B(10)), (b, B(20)), (a, B(11))]);
+        assert_eq!(world.get::<B>(a), Some(&B(11)));
+        assert_eq!(world.get::<B>(b), Some(&B(20)));
+    }
+
+    #[test]
+    fn insert_batch_drops_each_superseded_value_once() {
+        let (drops, make) = counter();
+        let mut world = World::new();
+        let e = world.spawn((A(1),));
+        world.insert_batch(vec![(e, make(0)), (e, make(1)), (e, make(2))]);
+        // Two superseded values dropped; the survivor is still stored.
+        assert_eq!(drops.get(), 2);
+        assert_eq!(world.get::<DropCounter>(e).map(|d| d.1), Some(2));
     }
 
     // --------------------------------------------------------------- hooks

@@ -22,7 +22,7 @@ enum Shape {
     Both(u32, i64),
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 enum Op {
     Spawn(Shape),
     Despawn(usize),
@@ -30,6 +30,7 @@ enum Op {
     InsertB(usize, i64),
     RemoveA(usize),
     RemoveB(usize),
+    InsertBatchA(Vec<(usize, u32)>),
 }
 
 fn op_strategy() -> impl Strategy<Value = Op> {
@@ -46,6 +47,7 @@ fn op_strategy() -> impl Strategy<Value = Op> {
         2 => (0usize..256, any::<i64>()).prop_map(|(i, v)| Op::InsertB(i, v)),
         1 => (0usize..256).prop_map(Op::RemoveA),
         1 => (0usize..256).prop_map(Op::RemoveB),
+        2 => prop::collection::vec((0usize..256, any::<u32>()), 1..8).prop_map(Op::InsertBatchA),
     ]
 }
 
@@ -114,6 +116,18 @@ impl Driver {
             Op::RemoveB(i) => {
                 if let Some(e) = self.pick(i) {
                     prop_assert_eq!(self.real.remove::<Db>(e), self.reference.remove::<Db>(e));
+                }
+            }
+            Op::InsertBatchA(ref pairs) => {
+                // Resolve indices once so both sides see the same items; the
+                // batched path must match per-entity inserts in the same order.
+                let items: Vec<(flux_ecs::Entity, Da)> = pairs
+                    .iter()
+                    .filter_map(|&(i, v)| self.pick(i).map(|e| (e, Da(v))))
+                    .collect();
+                self.real.insert_batch(items.clone());
+                for (e, v) in items {
+                    self.reference.insert(e, v);
                 }
             }
         }
