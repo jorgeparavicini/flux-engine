@@ -5,9 +5,9 @@
 //! identical observable state. Enabled by the `reference` feature; not part
 //! of the crate's supported API.
 
-use crate::{Component, Entities, Entity};
+use crate::{ChildOf, Component, ComponentKey, Entities, Entity, Relation};
 use std::any::{Any, TypeId};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Default)]
 /// The reference world. Mirrors [`World`](crate::World)'s API; entity ids
@@ -15,6 +15,7 @@ use std::collections::HashMap;
 pub struct RefWorld {
     entities: Entities,
     data: HashMap<Entity, HashMap<TypeId, Box<dyn Any>>>,
+    relations: HashMap<Entity, HashMap<ComponentKey, Entity>>,
 }
 
 impl RefWorld {
@@ -29,9 +30,45 @@ impl RefWorld {
     }
 
     pub fn despawn(&mut self, entity: Entity) -> bool {
-        if !self.entities.dealloc(entity) { return false; }
+        self.despawn_subtree(entity, &mut HashSet::new())
+    }
+
+    fn despawn_subtree(&mut self, entity: Entity, visited: &mut HashSet<Entity>) -> bool {
+        if !self.is_alive(entity) || !visited.insert(entity) {
+            return false;
+        }
+        let mut children: Vec<Entity> = self
+            .relations
+            .iter()
+            .filter_map(|(&e, links)| (links.get(&ChildOf::KEY) == Some(&entity)).then_some(e))
+            .collect();
+        children.sort_unstable();
+        for child in children {
+            self.despawn_subtree(child, visited);
+        }
+        self.entities.dealloc(entity);
         self.data.remove(&entity);
+        self.relations.remove(&entity);
         true
+    }
+
+    pub fn relate<R: Relation>(&mut self, entity: Entity, target: Entity) -> bool {
+        if !self.is_alive(entity) || !self.is_alive(target) {
+            return false;
+        }
+        self.relations.entry(entity).or_default().insert(R::KEY, target);
+        true
+    }
+
+    pub fn unrelate<R: Relation>(&mut self, entity: Entity) -> bool {
+        self.relations
+            .get_mut(&entity)
+            .and_then(|links| links.remove(&R::KEY))
+            .is_some()
+    }
+
+    pub fn related<R: Relation>(&self, entity: Entity) -> Option<Entity> {
+        self.relations.get(&entity)?.get(&R::KEY).copied()
     }
 
     pub fn is_alive(&self, entity: Entity) -> bool {

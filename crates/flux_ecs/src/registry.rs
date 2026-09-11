@@ -1,3 +1,5 @@
+use crate::entity::Entity;
+use crate::relation::RelationTarget;
 use crate::{Component, ComponentKey, StorageClass};
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
@@ -44,6 +46,8 @@ pub(crate) struct ComponentInfo {
     pub toggleable: bool,
     pub on_add: Option<crate::world::Hook>,
     pub on_remove: Option<crate::world::Hook>,
+    /// The `(relation, target)` this id stands for, if it is a relation pair.
+    pub relation: Option<RelationTarget>,
     #[cfg(debug_assertions)]
     type_id: std::any::TypeId,
 }
@@ -53,6 +57,7 @@ pub(crate) struct ComponentInfo {
 pub struct Registry {
     infos: Vec<ComponentInfo>,
     by_key: KeyMap<ComponentId>,
+    by_pair: HashMap<(ComponentKey, Entity), ComponentId>,
 }
 
 impl Registry {
@@ -100,11 +105,55 @@ impl Registry {
             toggleable: T::TOGGLEABLE,
             on_add: T::ON_ADD,
             on_remove: T::ON_REMOVE,
+            relation: None,
             #[cfg(debug_assertions)]
             type_id: std::any::TypeId::of::<T>(),
         });
         self.by_key.insert(T::KEY, id);
         id
+    }
+
+    /// Returns the id for the `(relation, target)` pair, registering it on
+    /// first sight. Pairs are zero-sized tags; the target is carried in the
+    /// registry entry, not in storage.
+    pub(crate) fn register_relation(
+        &mut self,
+        relation: ComponentKey,
+        target: Entity,
+    ) -> ComponentId {
+        if let Some(&id) = self.by_pair.get(&(relation, target)) {
+            return id;
+        }
+        let id =
+            ComponentId(u64::try_from(self.infos.len()).expect("component id space exhausted"));
+        self.infos.push(ComponentInfo {
+            key: relation,
+            name: "relation",
+            size: 0,
+            align: 1,
+            drop_fn: None,
+            storage: StorageClass::Tag,
+            non_send: false,
+            toggleable: false,
+            on_add: None,
+            on_remove: None,
+            relation: Some(RelationTarget { relation, target }),
+            #[cfg(debug_assertions)]
+            type_id: std::any::TypeId::of::<()>(),
+        });
+        self.by_pair.insert((relation, target), id);
+        id
+    }
+
+    /// The id of the `(relation, target)` pair, if it has been registered.
+    pub(crate) fn lookup_pair(&self, relation: ComponentKey, target: Entity) -> Option<ComponentId> {
+        self.by_pair.get(&(relation, target)).copied()
+    }
+
+    /// Drops the `(relation, target)` lookup entry. The registry slot itself
+    /// is not reclaimed; see PERFORMANCE.md.
+    pub(crate) fn forget_pair(&mut self, relation: ComponentKey, target: Entity) {
+        self.by_pair.remove(&(relation, target));
     }
 
     /// The id of the component registered under `key`, if any.

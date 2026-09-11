@@ -124,3 +124,16 @@ mask (`Vec<u64>`) per chunk and consults it each row.
   maximal runs of enabled rows via a `trailing_zeros` scan so the inner
   loop runs branch-free over contiguous spans, and borrow the mask instead
   of cloning it per chunk.
+
+## Relation-pair ids are never reclaimed
+
+Each distinct `(relation, target)` pair gets a registry slot on first use
+(`register_relation`). When the target despawns, its subtree is despawned and
+the `by_pair` lookup entry is dropped, but the `infos` slot leaks — one entry
+per parent that ever had children.
+
+- Trigger: a long-running world that continually spawns and despawns
+  hierarchies, shown by registry length climbing without bound. Known answer:
+  a relation-id freelist that retires zero-holder pairs and reuses the slot —
+  which also has to invalidate the archetype edge caches (`edge_add` /
+  `edge_remove`) keyed by the reused id, the reason it is deferred.

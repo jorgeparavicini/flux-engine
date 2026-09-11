@@ -6,7 +6,9 @@ use crate::storage::alloc::ChunkAlloc;
 use crate::storage::archetype::{ArchetypeId, Archetypes};
 use crate::storage::chunks::{ChunkId, Chunks};
 use crate::storage::ops;
-use crate::{Bundle, Component, Entities, Entity, Query, QueryState};
+use crate::relation::Relation;
+use crate::{Bundle, ChildOf, Component, Entities, Entity, Query, QueryState};
+use std::collections::HashSet;
 
 /// A reactive callback run during a structural change.
 ///
@@ -137,10 +139,27 @@ impl World {
         }
     }
 
-    /// Despawns `entity`, dropping all of its components.
+    /// Despawns `entity` and its `ChildOf` subtree, dropping every component.
     ///
     /// Returns false on a dead or stale handle, leaving the world unchanged.
     pub fn despawn(&mut self, entity: Entity) -> bool {
+        self.despawn_subtree(entity, &mut HashSet::new())
+    }
+
+    /// Despawns `entity` after its children; `visited` guards against a cycle
+    /// in the relation graph.
+    fn despawn_subtree(&mut self, entity: Entity, visited: &mut HashSet<Entity>) -> bool {
+        if self.entities.slot(entity).is_none() || !visited.insert(entity) {
+            return false;
+        }
+        if let Some(pair) = self.registry.lookup_pair(ChildOf::KEY, entity) {
+            let mut children = self.holders_of(pair);
+            children.sort_unstable();
+            for child in children {
+                self.despawn_subtree(child, visited);
+            }
+            self.registry.forget_pair(ChildOf::KEY, entity);
+        }
         let Some(slot) = self.entities.slot(entity) else {
             return false;
         };
@@ -166,6 +185,126 @@ impl World {
         };
         self.fix_swapped_slot(swapped, chunk, row);
         self.entities.dealloc(entity)
+    }
+
+    /// Relates `entity` to `target` under `R`, replacing any existing `R`.
+    ///
+    /// Returns false if either entity is dead. An entity holds at most one
+    /// `R` at a time.
+    pub fn relate<R: Relation>(&mut self, entity: Entity, target: Entity) -> bool {
+        if !self.entities.is_alive(entity) || !self.entities.is_alive(target) {
+            return false;
+        }
+        if self.related::<R>(entity) == Some(target) {
+            return true;
+        }
+        self.unrelate::<R>(entity);
+        let id = self.registry.register_relation(R::KEY, target);
+        self.add_tag_id(entity, id);
+        true
+    }
+
+    /// Removes `entity`'s `R` relation. Returns false if it had none.
+    pub fn unrelate<R: Relation>(&mut self, entity: Entity) -> bool {
+        match self.relation_id_on::<R>(entity) {
+            Some(id) => self.remove_tag_id(entity, id),
+            None => false,
+        }
+    }
+
+    /// The target of `entity`'s `R` relation, if it has one.
+    pub fn related<R: Relation>(&self, entity: Entity) -> Option<Entity> {
+        let id = self.relation_id_on::<R>(entity)?;
+        self.registry.info(id).relation.map(|r| r.target)
+    }
+
+    /// The signature id of `entity`'s `R` pair, if present.
+    fn relation_id_on<R: Relation>(&self, entity: Entity) -> Option<ComponentId> {
+        let slot = self.entities.slot(entity)?;
+        let arch_id = self.chunks.archetype(ChunkId(slot.chunk));
+        self.archetypes
+            .get(arch_id)
+            .signature()
+            .iter()
+            .copied()
+            .find(|&id| self.registry.info(id).relation.map(|r| r.relation) == Some(R::KEY))
+    }
+
+    /// Every live entity whose signature contains `id`.
+    fn holders_of(&self, id: ComponentId) -> Vec<Entity> {
+        let mut out = Vec::new();
+        for a in 0..self.archetypes.len() {
+            let arch = self.archetypes.get(ArchetypeId(a as u32));
+            if arch.signature().binary_search(&id).is_err() {
+                continue;
+            }
+            for &chunk in &arch.chunks {
+                for row in 0..self.chunks.len(chunk) {
+                    out.push(unsafe { ops::entity_at(&self.chunks, &arch.layout, chunk, row) });
+                }
+            }
+        }
+        out
+    }
+
+    /// Structurally adds the zero-sized component `id` to `entity` if absent.
+    /// Returns false if the entity is dead or already has it.
+    fn add_tag_id(&mut self, entity: Entity, id: ComponentId) -> bool {
+        let Some(slot) = self.entities.slot(entity) else {
+            return false;
+        };
+        let (chunk, row) = (ChunkId(slot.chunk), slot.row);
+        let src_id = self.chunks.archetype(chunk);
+        if self.archetypes.get(src_id).signature().binary_search(&id).is_ok() {
+            return false;
+        }
+        let dst_id = self.add_edge_target(src_id, id);
+        let (src_arch, dst_arch) = self.archetypes.get_pair_mut(src_id, dst_id);
+        let (dst_chunk, dst_row, swapped) = unsafe {
+            ops::move_row(
+                src_arch, dst_arch, dst_id, &mut self.chunks, &mut self.alloc, &self.registry, chunk, row, true,
+            )
+        };
+        let slot = self.entities.slot_mut(entity).expect("checked live above");
+        slot.chunk = dst_chunk.0;
+        slot.row = dst_row;
+        self.fix_swapped_slot(swapped, chunk, row);
+        self.version += 1;
+        self.stamp_all_columns(dst_chunk, dst_id, true);
+        self.fire_on_add(id, &[entity]);
+        true
+    }
+
+    /// Structurally removes the zero-sized component `id` from `entity`.
+    /// Returns false if the entity is dead or lacks it.
+    fn remove_tag_id(&mut self, entity: Entity, id: ComponentId) -> bool {
+        let Some(slot) = self.entities.slot(entity) else {
+            return false;
+        };
+        let arch_id = self.chunks.archetype(ChunkId(slot.chunk));
+        if self.archetypes.get(arch_id).signature().binary_search(&id).is_err() {
+            return false;
+        }
+        self.fire_on_remove(id, &[entity]);
+        let Some(slot) = self.entities.slot(entity) else {
+            return false;
+        };
+        let (chunk, row) = (ChunkId(slot.chunk), slot.row);
+        let arch_id = self.chunks.archetype(chunk);
+        let dst_id = self.remove_edge_target(arch_id, id);
+        let (src_arch, dst_arch) = self.archetypes.get_pair_mut(arch_id, dst_id);
+        let (dst_chunk, dst_row, swapped) = unsafe {
+            ops::move_row(
+                src_arch, dst_arch, dst_id, &mut self.chunks, &mut self.alloc, &self.registry, chunk, row, false,
+            )
+        };
+        let slot = self.entities.slot_mut(entity).expect("checked live above");
+        slot.chunk = dst_chunk.0;
+        slot.row = dst_row;
+        self.fix_swapped_slot(swapped, chunk, row);
+        self.version += 1;
+        self.stamp_all_columns(dst_chunk, dst_id, true);
+        true
     }
 
     /// Whether `entity` refers to a live entity.
@@ -1306,5 +1445,77 @@ mod tests {
         assert!(world.despawn(e));
         assert_eq!(REMOVED.with(|l| l.borrow().clone()), vec![vec![e]]);
         assert_eq!(REMOVE_SAW.with(|l| l.borrow().clone()), vec![5]);
+    }
+
+    // ------------------------------------------------------------- relations
+
+    #[test]
+    fn relate_related_unrelate_round_trip() {
+        let mut world = World::new();
+        let parent = world.spawn((A(1),));
+        let child = world.spawn((A(2),));
+        assert_eq!(world.related::<ChildOf>(child), None);
+
+        assert!(world.relate::<ChildOf>(child, parent));
+        assert_eq!(world.related::<ChildOf>(child), Some(parent));
+        // The component data is untouched by the relation.
+        assert_eq!(world.get::<A>(child), Some(&A(2)));
+
+        assert!(world.unrelate::<ChildOf>(child));
+        assert_eq!(world.related::<ChildOf>(child), None);
+        assert!(!world.unrelate::<ChildOf>(child), "second unrelate is a no-op");
+    }
+
+    #[test]
+    fn relate_replaces_the_previous_target() {
+        let mut world = World::new();
+        let a = world.spawn((A(1),));
+        let b = world.spawn((A(2),));
+        let child = world.spawn((A(3),));
+        world.relate::<ChildOf>(child, a);
+        world.relate::<ChildOf>(child, b);
+        assert_eq!(world.related::<ChildOf>(child), Some(b), "one ChildOf per entity");
+    }
+
+    #[test]
+    fn relate_to_a_dead_entity_fails() {
+        let mut world = World::new();
+        let child = world.spawn((A(1),));
+        let ghost = world.spawn(());
+        world.despawn(ghost);
+        assert!(!world.relate::<ChildOf>(child, ghost));
+        assert_eq!(world.related::<ChildOf>(child), None);
+    }
+
+    #[test]
+    fn despawn_removes_the_whole_subtree() {
+        let (drops, make) = counter();
+        let mut world = World::new();
+        let root = world.spawn((make(0),));
+        let child_a = world.spawn((make(1),));
+        let child_b = world.spawn((make(2),));
+        let grandchild = world.spawn((make(3),));
+        world.relate::<ChildOf>(child_a, root);
+        world.relate::<ChildOf>(child_b, root);
+        world.relate::<ChildOf>(grandchild, child_a);
+
+        assert!(world.despawn(root));
+        assert_eq!(drops.get(), 4, "root, both children, and the grandchild");
+        for e in [root, child_a, child_b, grandchild] {
+            assert!(!world.is_alive(e));
+        }
+    }
+
+    #[test]
+    fn despawn_terminates_on_a_relation_cycle() {
+        let mut world = World::new();
+        let a = world.spawn((A(1),));
+        let b = world.spawn((A(2),));
+        // A malformed graph: a is b's child and b is a's child.
+        world.relate::<ChildOf>(a, b);
+        world.relate::<ChildOf>(b, a);
+        assert!(world.despawn(a));
+        assert!(!world.is_alive(a));
+        assert!(!world.is_alive(b), "the cycle guard still despawns the reachable set");
     }
 }

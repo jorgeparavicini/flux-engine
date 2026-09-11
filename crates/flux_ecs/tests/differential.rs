@@ -4,8 +4,8 @@
 //! after every op. Ops address entities by index into the log of every entity
 //! ever created, so stale handles are exercised constantly.
 
-use flux_ecs::{Component, World};
 use flux_ecs::reference::RefWorld;
+use flux_ecs::{ChildOf, Component, World};
 use proptest::prelude::*;
 
 #[derive(Component, Copy, Clone, PartialEq, Debug)]
@@ -31,6 +31,8 @@ enum Op {
     RemoveA(usize),
     RemoveB(usize),
     InsertBatchA(Vec<(usize, u32)>),
+    Relate(usize, usize),
+    Unrelate(usize),
 }
 
 fn op_strategy() -> impl Strategy<Value = Op> {
@@ -48,6 +50,8 @@ fn op_strategy() -> impl Strategy<Value = Op> {
         1 => (0usize..256).prop_map(Op::RemoveA),
         1 => (0usize..256).prop_map(Op::RemoveB),
         2 => prop::collection::vec((0usize..256, any::<u32>()), 1..8).prop_map(Op::InsertBatchA),
+        2 => (0usize..256, 0usize..256).prop_map(|(c, p)| Op::Relate(c, p)),
+        1 => (0usize..256).prop_map(Op::Unrelate),
     ]
 }
 
@@ -118,6 +122,27 @@ impl Driver {
                     prop_assert_eq!(self.real.remove::<Db>(e), self.reference.remove::<Db>(e));
                 }
             }
+            Op::Relate(ci, pi) => {
+                if let (Some(c), Some(p)) = (self.pick(ci), self.pick(pi)) {
+                    prop_assert_eq!(
+                        self.real.relate::<ChildOf>(c, p),
+                        self.reference.relate::<ChildOf>(c, p),
+                        "relate({:?}, {:?})",
+                        c,
+                        p
+                    );
+                }
+            }
+            Op::Unrelate(ci) => {
+                if let Some(c) = self.pick(ci) {
+                    prop_assert_eq!(
+                        self.real.unrelate::<ChildOf>(c),
+                        self.reference.unrelate::<ChildOf>(c),
+                        "unrelate({:?})",
+                        c
+                    );
+                }
+            }
             Op::InsertBatchA(ref pairs) => {
                 // Resolve indices once so both sides see the same items; the
                 // batched path must match per-entity inserts in the same order.
@@ -148,6 +173,12 @@ impl Driver {
                 self.real.get::<Db>(*e),
                 self.reference.get::<Db>(*e),
                 "Db of {:?}",
+                e
+            );
+            prop_assert_eq!(
+                self.real.related::<ChildOf>(*e),
+                self.reference.related::<ChildOf>(*e),
+                "ChildOf of {:?}",
                 e
             );
         }
