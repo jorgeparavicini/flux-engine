@@ -3,28 +3,28 @@ use crate::device::Device;
 use crate::pipeline::Pipeline;
 use crate::swapchain::Swapchain;
 use ash::vk;
-use flux_ecs::commands::Commands;
-use flux_ecs::resource::{Res, Resource};
+use flux_ecs::Single;
+use flux_ecs::Commands;
 use log::debug;
 
+#[derive(flux_ecs::Component)]
 pub struct Descriptors {
     pub descriptor_pool: vk::DescriptorPool,
     pub descriptor_sets: Vec<vk::DescriptorSet>,
 }
 
-impl Resource for Descriptors {}
 
 pub fn create_descriptors(
-    device: Res<Device>,
-    pipeline: Res<Pipeline>,
-    swapchain: Res<Swapchain>,
-    uniform_buffer: Res<UniformBuffers>,
+    device: Single<&Device>,
+    pipeline: Single<&Pipeline>,
+    swapchain: Single<&Swapchain>,
+    uniform_buffer: Single<&UniformBuffers>,
     mut commands: Commands,
 ) -> Result<(), vk::Result> {
     let pool = create_descriptor_pool(&device, &swapchain)?;
     let sets = create_descriptor_sets(&device, &pipeline, &swapchain, pool, &uniform_buffer)?;
 
-    commands.insert_resource(Descriptors {
+    commands.insert_singleton(Descriptors {
         descriptor_pool: pool,
         descriptor_sets: sets,
     });
@@ -87,8 +87,8 @@ fn create_descriptor_sets(
 }
 
 pub fn destroy_descriptors(
-    device: Res<Device>,
-    descriptors: Res<Descriptors>,
+    device: Single<&Device>,
+    descriptors: Single<&Descriptors>,
     mut commands: Commands,
 ) -> Result<(), vk::Result> {
     debug!("Destroying descriptor pool");
@@ -96,7 +96,7 @@ pub fn destroy_descriptors(
         device.destroy_descriptor_pool(descriptors.descriptor_pool, None);
     }
 
-    commands.remove_resource::<Descriptors>();
+    commands.remove_singleton::<Descriptors>();
 
     Ok(())
 }

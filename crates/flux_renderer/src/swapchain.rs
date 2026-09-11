@@ -2,11 +2,12 @@ use crate::device::{Device, PhysicalDevice};
 use crate::instance::{SurfaceProviderResource, VulkanInstance};
 use crate::surface::VulkanSurface;
 use ash::{khr, vk};
-use flux_ecs::commands::Commands;
-use flux_ecs::resource::{Res, Resource};
+use flux_ecs::Single;
+use flux_ecs::Commands;
 use log::debug;
 use std::ops::Deref;
 
+#[derive(flux_ecs::Component)]
 pub struct Swapchain {
     pub format: vk::SurfaceFormatKHR,
     pub extent: vk::Extent2D,
@@ -16,7 +17,6 @@ pub struct Swapchain {
     pub max_frames_in_flight: usize,
 }
 
-impl Resource for Swapchain {}
 
 impl Deref for Swapchain {
     type Target = vk::SwapchainKHR;
@@ -27,11 +27,11 @@ impl Deref for Swapchain {
 }
 
 pub fn create_swapchain(
-    instance: Res<VulkanInstance>,
-    physical_device: Res<PhysicalDevice>,
-    device: Res<Device>,
-    surface: Res<VulkanSurface>,
-    surface_provider: Res<SurfaceProviderResource>,
+    instance: Single<&VulkanInstance>,
+    physical_device: Single<&PhysicalDevice>,
+    device: Single<&Device>,
+    surface: Single<&VulkanSurface>,
+    surface_provider: Single<&SurfaceProviderResource>,
     mut commands: Commands,
 ) -> Result<(), vk::Result> {
     debug!("Creating swapchain");
@@ -111,7 +111,7 @@ pub fn create_swapchain(
         .map(|image| create_image_view(*image, surface_format.format, &device))
         .collect::<Vec<_>>();
 
-    commands.insert_resource(Swapchain {
+    commands.insert_singleton(Swapchain {
         swapchain,
         images,
         format: surface_format,
@@ -146,9 +146,9 @@ fn create_image_view(image: vk::Image, format: vk::Format, device: &Device) -> v
 }
 
 pub fn destroy_swapchain(
-    instance: Res<VulkanInstance>,
-    device: Res<Device>,
-    swapchain: Res<Swapchain>,
+    instance: Single<&VulkanInstance>,
+    device: Single<&Device>,
+    swapchain: Single<&Swapchain>,
     mut commands: Commands,
 ) {
     debug!("Destroying swapchain");
@@ -161,5 +161,5 @@ pub fn destroy_swapchain(
         loader.destroy_swapchain(**swapchain, None);
     }
 
-    commands.remove_resource::<Swapchain>();
+    commands.remove_singleton::<Swapchain>();
 }

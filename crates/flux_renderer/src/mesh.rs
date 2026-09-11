@@ -3,10 +3,9 @@ use crate::command_pool::CommandPools;
 use crate::device::{Device, PhysicalDevice};
 use crate::instance::VulkanInstance;
 use ash::vk;
-use flux_ecs::commands::Commands;
-use flux_ecs::component::Component;
-use flux_ecs::query::Query;
-use flux_ecs::resource::Res;
+use flux_ecs::Single;
+use flux_ecs::Commands;
+use flux_ecs::Query;
 use flux_renderer_abstractions::mesh::VertexFormat::Float32x3;
 use flux_renderer_abstractions::mesh::{Mesh, Vertex, VertexAttribute, VertexLayout};
 use log::debug;
@@ -39,6 +38,12 @@ impl Vertex for CoolVertex {
     }
 }
 
+/// The renderer's mesh input: [`Mesh`] made concrete so it can live on an
+/// entity.
+#[derive(flux_ecs::Component)]
+pub struct MeshComponent(pub Mesh<CoolVertex>);
+
+#[derive(flux_ecs::Component)]
 pub struct VulkanMesh {
     pub vertex_buffer: vk::Buffer,
     pub vertex_buffer_memory: vk::DeviceMemory,
@@ -47,20 +52,20 @@ pub struct VulkanMesh {
     pub num_indices: u32,
 }
 
-impl Component for VulkanMesh {}
 
 pub fn create_buffers(
-    instance: Res<VulkanInstance>,
-    physical_device: Res<PhysicalDevice>,
-    device: Res<Device>,
-    command_pools: Res<CommandPools>,
+    instance: Single<&VulkanInstance>,
+    physical_device: Single<&PhysicalDevice>,
+    device: Single<&Device>,
+    command_pools: Single<&CommandPools>,
     // TODO: Needs to be able to be generalized
-    meshes: Query<&Mesh<CoolVertex>>,
+    meshes: Query<&MeshComponent>,
     mut commands: Commands,
 ) {
     debug!("Creating mesh buffers");
 
-    for mesh in meshes {
+    meshes.for_each(|mesh| {
+        let mesh = &mesh.0;
         let (vertex_buffer, vertex_buffer_memory) = create_vertex_buffer(
             &instance,
             &physical_device,
@@ -88,8 +93,8 @@ pub fn create_buffers(
             index_buffer,
             index_buffer_memory,
             num_indices,
-        }));
-    }
+        },));
+    });
 }
 
 fn create_vertex_buffer(

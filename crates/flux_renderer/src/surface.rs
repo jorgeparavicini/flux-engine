@@ -1,16 +1,16 @@
 use crate::instance::{SurfaceProviderResource, VulkanInstance};
 use ash::khr::surface;
 use ash::vk;
-use flux_ecs::commands::Commands;
-use flux_ecs::resource::{Res, Resource};
+use flux_ecs::Single;
+use flux_ecs::Commands;
 use log::info;
 use std::ops::Deref;
 
+#[derive(flux_ecs::Component)]
 pub struct VulkanSurface {
     pub surface: vk::SurfaceKHR,
 }
 
-impl Resource for VulkanSurface {}
 
 impl Deref for VulkanSurface {
     type Target = vk::SurfaceKHR;
@@ -21,8 +21,8 @@ impl Deref for VulkanSurface {
 }
 
 pub fn create_surface(
-    surface_provider_resource: Res<SurfaceProviderResource>,
-    instance: Res<VulkanInstance>,
+    surface_provider_resource: Single<&SurfaceProviderResource>,
+    instance: Single<&VulkanInstance>,
     mut commands: Commands,
 ) -> Result<(), vk::Result> {
     info!("Creating vulkan surface");
@@ -36,14 +36,14 @@ pub fn create_surface(
         )
     }?;
 
-    commands.insert_resource(VulkanSurface { surface });
+    commands.insert_singleton(VulkanSurface { surface });
 
     Ok(())
 }
 
 pub fn destroy_surface(
-    surface: Res<VulkanSurface>,
-    instance: Res<VulkanInstance>,
+    surface: Single<&VulkanSurface>,
+    instance: Single<&VulkanInstance>,
     mut commands: Commands,
 ) {
     info!("Destroying vulkan surface");
@@ -51,5 +51,5 @@ pub fn destroy_surface(
         let surface_loader = surface::Instance::new(&instance.entry, &instance);
         surface::Instance::destroy_surface(&surface_loader, **surface, None)
     }
-    commands.remove_resource::<VulkanSurface>();
+    commands.remove_singleton::<VulkanSurface>();
 }

@@ -4,8 +4,8 @@ use crate::image::get_memory_type_index;
 use crate::instance::VulkanInstance;
 use crate::swapchain::Swapchain;
 use ash::vk;
-use flux_ecs::commands::Commands;
-use flux_ecs::resource::{Res, Resource};
+use flux_ecs::Single;
+use flux_ecs::Commands;
 use glam::{Mat4, Vec2, Vec3};
 use log::debug;
 use std::ptr::copy_nonoverlapping as memcpy;
@@ -41,36 +41,36 @@ pub struct UniformBufferObject {
     pub projection: Mat4,
 }
 
+#[derive(flux_ecs::Component)]
 pub struct VertexBuffer {
     pub buffer: vk::Buffer,
     pub memory: vk::DeviceMemory,
 }
 
-impl Resource for VertexBuffer {}
 
+#[derive(flux_ecs::Component)]
 pub struct IndexBuffer {
     pub buffer: vk::Buffer,
     pub memory: vk::DeviceMemory,
 }
 
-impl Resource for IndexBuffer {}
 
 pub struct UniformBuffer {
     pub buffer: vk::Buffer,
     pub memory: vk::DeviceMemory,
 }
 
+#[derive(flux_ecs::Component)]
 pub struct UniformBuffers {
     pub buffers: Vec<UniformBuffer>,
 }
 
-impl Resource for UniformBuffers {}
 
 pub fn create_vertex_buffer(
-    instance: Res<VulkanInstance>,
-    physical_device: Res<PhysicalDevice>,
-    device: Res<Device>,
-    command_pools: Res<CommandPools>,
+    instance: Single<&VulkanInstance>,
+    physical_device: Single<&PhysicalDevice>,
+    device: Single<&Device>,
+    command_pools: Single<&CommandPools>,
     mut commands: Commands,
 ) -> Result<(), vk::Result> {
     debug!("Creating vertex buffer");
@@ -114,16 +114,16 @@ pub fn create_vertex_buffer(
         memory: vertex_buffer_memory,
     };
 
-    commands.insert_resource(vertex_buffer_resource);
+    commands.insert_singleton(vertex_buffer_resource);
 
     Ok(())
 }
 
 pub fn create_index_buffer(
-    instance: Res<VulkanInstance>,
-    physical_device: Res<PhysicalDevice>,
-    device: Res<Device>,
-    command_pools: Res<CommandPools>,
+    instance: Single<&VulkanInstance>,
+    physical_device: Single<&PhysicalDevice>,
+    device: Single<&Device>,
+    command_pools: Single<&CommandPools>,
     mut commands: Commands,
 ) -> Result<(), vk::Result> {
     debug!("Creating index buffer");
@@ -165,7 +165,7 @@ pub fn create_index_buffer(
         device.free_memory(staging_buffer_memory, None);
     }
 
-    commands.insert_resource(IndexBuffer {
+    commands.insert_singleton(IndexBuffer {
         buffer: index_buffer,
         memory: index_buffer_memory,
     });
@@ -174,10 +174,10 @@ pub fn create_index_buffer(
 }
 
 pub fn create_uniform_buffer(
-    instance: Res<VulkanInstance>,
-    physical_device: Res<PhysicalDevice>,
-    device: Res<Device>,
-    swapchain: Res<Swapchain>,
+    instance: Single<&VulkanInstance>,
+    physical_device: Single<&PhysicalDevice>,
+    device: Single<&Device>,
+    swapchain: Single<&Swapchain>,
     mut commands: Commands,
 ) -> Result<(), vk::Result> {
     debug!("Creating uniform buffer");
@@ -202,7 +202,7 @@ pub fn create_uniform_buffer(
         });
     }
 
-    commands.insert_resource(buffers);
+    commands.insert_singleton(buffers);
 
     Ok(())
 }
@@ -299,10 +299,10 @@ fn end_single_time_commands(
 }
 
 pub fn destroy_buffers(
-    device: Res<Device>,
-    vertex_buffer: Res<VertexBuffer>,
-    index_buffer: Res<IndexBuffer>,
-    uniform_buffers: Res<UniformBuffers>,
+    device: Single<&Device>,
+    vertex_buffer: Single<&VertexBuffer>,
+    index_buffer: Single<&IndexBuffer>,
+    uniform_buffers: Single<&UniformBuffers>,
 ) {
     debug!("Destroying buffers");
 

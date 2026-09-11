@@ -3,10 +3,11 @@ use crate::image::{create_image, create_image_view};
 use crate::instance::VulkanInstance;
 use crate::swapchain::Swapchain;
 use ash::vk;
-use flux_ecs::commands::Commands;
-use flux_ecs::resource::{Res, Resource};
+use flux_ecs::Single;
+use flux_ecs::Commands;
 use log::debug;
 
+#[derive(flux_ecs::Component)]
 pub struct DepthBuffers {
     pub depth_image: vk::Image,
     pub depth_image_view: vk::ImageView,
@@ -14,13 +15,12 @@ pub struct DepthBuffers {
     pub depth_format: vk::Format,
 }
 
-impl Resource for DepthBuffers {}
 
 pub fn create_depth_buffers(
-    instance: Res<VulkanInstance>,
-    physical_device: Res<PhysicalDevice>,
-    device: Res<Device>,
-    swapchain: Res<Swapchain>,
+    instance: Single<&VulkanInstance>,
+    physical_device: Single<&PhysicalDevice>,
+    device: Single<&Device>,
+    swapchain: Single<&Swapchain>,
     mut commands: Commands,
 ) -> Result<(), vk::Result> {
     debug!("Creating depth buffers");
@@ -53,7 +53,7 @@ pub fn create_depth_buffers(
         depth_format,
     };
 
-    commands.insert_resource(depth_buffers);
+    commands.insert_singleton(depth_buffers);
 
     Ok(())
 }
@@ -97,8 +97,8 @@ fn get_supported_format(
 }
 
 pub fn destroy_depth_buffers(
-    device: Res<Device>,
-    depth_buffers: Res<DepthBuffers>,
+    device: Single<&Device>,
+    depth_buffers: Single<&DepthBuffers>,
     mut commands: Commands,
 ) {
     debug!("Destroying depth buffers");
@@ -109,5 +109,5 @@ pub fn destroy_depth_buffers(
         device.free_memory(depth_buffers.depth_image_memory, None);
     }
 
-    commands.remove_resource::<DepthBuffers>();
+    commands.remove_singleton::<DepthBuffers>();
 }

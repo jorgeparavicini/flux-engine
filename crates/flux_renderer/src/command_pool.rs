@@ -1,17 +1,17 @@
 use ash::vk;
 use log::debug;
-use flux_ecs::commands::Commands;
-use flux_ecs::resource::{Res, Resource};
+use flux_ecs::Single;
+use flux_ecs::Commands;
 use crate::device::Device;
 
+#[derive(flux_ecs::Component)]
 pub struct CommandPools {
     pub graphics: vk::CommandPool,
     pub transfer: vk::CommandPool,
 }
 
-impl Resource for CommandPools {}
 
-pub fn create_command_pools(device: Res<Device>, mut commands: Commands) -> Result<(), vk::Result> {
+pub fn create_command_pools(device: Single<&Device>, mut commands: Commands) -> Result<(), vk::Result> {
     debug!("Creating command pools");
 
     let info = vk::CommandPoolCreateInfo::default()
@@ -29,7 +29,7 @@ pub fn create_command_pools(device: Res<Device>, mut commands: Commands) -> Resu
         device.create_command_pool(&info, None)?
     };
 
-    commands.insert_resource(CommandPools {
+    commands.insert_singleton(CommandPools {
         graphics: graphics_pool,
         transfer: transfer_pool,
     });
@@ -38,8 +38,8 @@ pub fn create_command_pools(device: Res<Device>, mut commands: Commands) -> Resu
 }
 
 pub fn destroy_command_pools(
-    device: Res<Device>,
-    command_pools: Res<CommandPools>,
+    device: Single<&Device>,
+    command_pools: Single<&CommandPools>,
     mut commands: Commands,
 ) {
     debug!("Destroying command pools");
@@ -49,5 +49,5 @@ pub fn destroy_command_pools(
         device.destroy_command_pool(command_pools.transfer, None);
     }
 
-    commands.remove_resource::<CommandPools>();
+    commands.remove_singleton::<CommandPools>();
 }

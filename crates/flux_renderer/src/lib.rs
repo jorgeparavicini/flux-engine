@@ -1,6 +1,5 @@
 use crate::buffers::{
-    create_index_buffer, create_uniform_buffer, create_vertex_buffer, destroy_buffers, IndexBuffer,
-    VertexBuffer,
+    create_index_buffer, create_uniform_buffer, create_vertex_buffer, destroy_buffers,
 };
 use crate::command_buffer::{create_command_buffer, destroy_command_buffers, CommandBuffers};
 use crate::command_pool::{create_command_pools, destroy_command_pools};
@@ -10,21 +9,18 @@ use crate::device::{
     create_logical_device, create_physical_device, destroy_logical_device, Device,
 };
 use crate::instance::{create_instance, destroy_instance, VulkanInstance};
-use crate::mesh::{create_buffers, CoolVertex, VulkanMesh};
+use crate::mesh::{create_buffers, CoolVertex, MeshComponent, VulkanMesh};
 use crate::pipeline::{create_pipeline, destroy_pipeline, Pipeline};
 use crate::surface::{create_surface, destroy_surface};
 use crate::swapchain::{create_swapchain, destroy_swapchain, Swapchain};
 use ash::vk;
 use ash::vk::{Handle, IndexType};
-use flux_ecs::commands::Commands;
-use flux_ecs::plugin::Plugin;
-use flux_ecs::query::Query;
-use flux_ecs::resource::{MutRes, Res, Resource};
-use flux_ecs::schedule::ScheduleLabel;
-use flux_ecs::world::World;
+use flux_ecs::Single;
+use flux_ecs::Commands;
+use flux_ecs::Query;
+use flux_ecs::{Schedule, World};
 use flux_renderer_abstractions::mesh::Mesh;
 use log::debug;
-use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
 mod buffers;
 mod command_buffer;
@@ -39,73 +35,106 @@ mod pipeline;
 mod surface;
 mod swapchain;
 
-pub struct RendererPlugin;
+/// True while the swapchain no longer matches the surface; the recreation
+/// systems in the render schedule run while set.
+#[derive(flux_ecs::Component, Default)]
+pub struct SwapchainOutdated(pub bool);
 
-impl Plugin for RendererPlugin {
-    fn init(&self, world: &mut World) {
-        let mesh = Mesh {
-            vertices: vec![CoolVertex {
-                position: [0.0, -0.5, 0.0],
-                color: [1.0, 1.0, 1.0],
-            }, CoolVertex {
-                position: [0.5, 0.5, 0.0],
-                color: [1.0, 1.0, 1.0],
-            }, CoolVertex {
-                position: [-0.5, 0.5, 0.0],
-                color: [1.0, 1.0, 1.0],
-            }],
-            indices: Some(vec![1, 0, 2]),
-        };
-        world.spawn(mesh);
-
-        world.add_default_resource::<FrameData>();
-        world.add_system(ScheduleLabel::Initialization, create_instance);
-        world.add_system(ScheduleLabel::Initialization, create_surface);
-        world.add_system(ScheduleLabel::Initialization, create_physical_device);
-        world.add_system(ScheduleLabel::Initialization, create_logical_device);
-        world.add_system(ScheduleLabel::Initialization, create_swapchain);
-        world.add_system(ScheduleLabel::Initialization, create_pipeline);
-        world.add_system(ScheduleLabel::Initialization, create_depth_buffers);
-        world.add_system(ScheduleLabel::Initialization, create_command_pools);
-        world.add_system(ScheduleLabel::Initialization, create_vertex_buffer);
-        world.add_system(ScheduleLabel::Initialization, create_index_buffer);
-        world.add_system(ScheduleLabel::Initialization, create_uniform_buffer);
-        world.add_system(ScheduleLabel::Initialization, create_descriptors);
-        world.add_system(ScheduleLabel::Initialization, create_command_buffer);
-        world.add_system(ScheduleLabel::Initialization, create_sync_objects);
-
-        world.add_system(ScheduleLabel::Initialization, create_buffers);
-
-        world.add_system(ScheduleLabel::Render, render);
-
-        world.add_system(ScheduleLabel::Destroy, wait_device_idle);
-        world.add_system(ScheduleLabel::Destroy, destroy_sync_objects);
-        world.add_system(ScheduleLabel::Destroy, destroy_descriptors);
-        world.add_system(ScheduleLabel::Destroy, destroy_buffers);
-        world.add_system(ScheduleLabel::Destroy, destroy_command_pools);
-        world.add_system(ScheduleLabel::Destroy, destroy_depth_buffers);
-        world.add_system(ScheduleLabel::Destroy, destroy_pipeline);
-        world.add_system(ScheduleLabel::Destroy, destroy_swapchain);
-        world.add_system(ScheduleLabel::Destroy, destroy_logical_device);
-        world.add_system(ScheduleLabel::Destroy, destroy_surface);
-        world.add_system(ScheduleLabel::Destroy, destroy_instance);
-
-        world.add_system(ScheduleLabel::RecreateSwapchain, wait_for_device_idle);
-        world.add_system(ScheduleLabel::RecreateSwapchain, destroy_descriptors);
-        world.add_system(ScheduleLabel::RecreateSwapchain, destroy_depth_buffers);
-        world.add_system(ScheduleLabel::RecreateSwapchain, destroy_command_buffers);
-        world.add_system(ScheduleLabel::RecreateSwapchain, destroy_command_pools);
-        world.add_system(ScheduleLabel::RecreateSwapchain, destroy_pipeline);
-        world.add_system(ScheduleLabel::RecreateSwapchain, destroy_swapchain);
-        world.add_system(ScheduleLabel::RecreateSwapchain, create_swapchain);
-        world.add_system(ScheduleLabel::RecreateSwapchain, create_pipeline);
-        world.add_system(ScheduleLabel::RecreateSwapchain, create_depth_buffers);
-        world.add_system(ScheduleLabel::RecreateSwapchain, create_command_pools);
-        world.add_system(ScheduleLabel::RecreateSwapchain, create_descriptors);
-        world.add_system(ScheduleLabel::RecreateSwapchain, create_command_buffer);
-    }
+fn swapchain_outdated(world: &World) -> bool {
+    world
+        .singleton::<SwapchainOutdated>()
+        .is_some_and(|flag| flag.0)
 }
 
+fn clear_swapchain_outdated(mut flag: Single<&mut SwapchainOutdated>) {
+    flag.0 = false;
+}
+
+/// Inserts the renderer's initial state: the demo mesh and per-frame data.
+pub fn setup(world: &mut World) {
+    let mesh = Mesh {
+        vertices: vec![
+            CoolVertex {
+                position: [0.0, -0.5, 0.0],
+                color: [1.0, 1.0, 1.0],
+            },
+            CoolVertex {
+                position: [0.5, 0.5, 0.0],
+                color: [1.0, 1.0, 1.0],
+            },
+            CoolVertex {
+                position: [-0.5, 0.5, 0.0],
+                color: [1.0, 1.0, 1.0],
+            },
+        ],
+        indices: Some(vec![1, 0, 2]),
+    };
+    world.spawn((MeshComponent(mesh),));
+    world.insert_singleton(FrameData::default());
+    world.insert_singleton(SwapchainOutdated(false));
+}
+
+/// Creates every Vulkan resource, in dependency order.
+pub fn init_schedule() -> Schedule {
+    let mut schedule = Schedule::new();
+    schedule.add(create_instance);
+    schedule.add(create_surface);
+    schedule.add(create_physical_device);
+    schedule.add(create_logical_device);
+    schedule.add(create_swapchain);
+    schedule.add(create_pipeline);
+    schedule.add(create_depth_buffers);
+    schedule.add(create_command_pools);
+    schedule.add(create_vertex_buffer);
+    schedule.add(create_index_buffer);
+    schedule.add(create_uniform_buffer);
+    schedule.add(create_descriptors);
+    schedule.add(create_command_buffer);
+    schedule.add(create_sync_objects);
+    schedule.add(create_buffers);
+    schedule
+}
+
+/// Renders one frame. When the swapchain is out of date, the recreation
+/// systems run in the same pass, gated on [`SwapchainOutdated`].
+pub fn render_schedule() -> Schedule {
+    let mut schedule = Schedule::new();
+    schedule.add(render);
+    schedule.add(wait_for_device_idle).run_if(swapchain_outdated);
+    schedule.add(destroy_descriptors).run_if(swapchain_outdated);
+    schedule.add(destroy_depth_buffers).run_if(swapchain_outdated);
+    schedule.add(destroy_command_buffers).run_if(swapchain_outdated);
+    schedule.add(destroy_command_pools).run_if(swapchain_outdated);
+    schedule.add(destroy_pipeline).run_if(swapchain_outdated);
+    schedule.add(destroy_swapchain).run_if(swapchain_outdated);
+    schedule.add(create_swapchain).run_if(swapchain_outdated);
+    schedule.add(create_pipeline).run_if(swapchain_outdated);
+    schedule.add(create_depth_buffers).run_if(swapchain_outdated);
+    schedule.add(create_command_pools).run_if(swapchain_outdated);
+    schedule.add(create_descriptors).run_if(swapchain_outdated);
+    schedule.add(create_command_buffer).run_if(swapchain_outdated);
+    schedule.add(clear_swapchain_outdated).run_if(swapchain_outdated);
+    schedule
+}
+
+/// Tears every Vulkan resource down, in reverse dependency order.
+pub fn destroy_schedule() -> Schedule {
+    let mut schedule = Schedule::new();
+    schedule.add(wait_device_idle);
+    schedule.add(destroy_sync_objects);
+    schedule.add(destroy_descriptors);
+    schedule.add(destroy_buffers);
+    schedule.add(destroy_command_pools);
+    schedule.add(destroy_depth_buffers);
+    schedule.add(destroy_pipeline);
+    schedule.add(destroy_swapchain);
+    schedule.add(destroy_logical_device);
+    schedule.add(destroy_surface);
+    schedule.add(destroy_instance);
+    schedule
+}
+
+#[derive(flux_ecs::Component)]
 pub struct SyncObjects {
     pub image_available_semaphores: Vec<vk::Semaphore>,
     pub render_finished_semaphores: Vec<vk::Semaphore>,
@@ -113,11 +142,10 @@ pub struct SyncObjects {
     pub images_in_flight: Vec<vk::Fence>,
 }
 
-impl Resource for SyncObjects {}
 
 fn create_sync_objects(
-    device: Res<Device>,
-    swapchain: Res<Swapchain>,
+    device: Single<&Device>,
+    swapchain: Single<&Swapchain>,
     mut commands: Commands,
 ) -> Result<(), vk::Result> {
     let semaphore_info = vk::SemaphoreCreateInfo::default();
@@ -138,7 +166,7 @@ fn create_sync_objects(
 
     let images_in_flight = swapchain.images.iter().map(|_| vk::Fence::null()).collect();
 
-    commands.insert_resource(SyncObjects {
+    commands.insert_singleton(SyncObjects {
         image_available_semaphores,
         render_finished_semaphores,
         in_flight_fences,
@@ -149,23 +177,23 @@ fn create_sync_objects(
 }
 
 #[derive(Default)]
+#[derive(flux_ecs::Component)]
 pub struct FrameData {
     pub frame_index: usize,
 }
 
-impl Resource for FrameData {}
 
 pub fn render(
-    instance: Res<VulkanInstance>,
-    device: Res<Device>,
-    swapchain: Res<Swapchain>,
-    command_buffers_res: Res<CommandBuffers>,
-    depth_buffers: Res<DepthBuffers>,
-    pipeline: Res<Pipeline>,
+    instance: Single<&VulkanInstance>,
+    device: Single<&Device>,
+    swapchain: Single<&Swapchain>,
+    command_buffers_res: Single<&CommandBuffers>,
+    depth_buffers: Single<&DepthBuffers>,
+    pipeline: Single<&Pipeline>,
     meshes: Query<&VulkanMesh>,
-    descriptors: Res<Descriptors>,
-    mut sync_objects: MutRes<SyncObjects>,
-    mut frame_data: MutRes<FrameData>,
+    descriptors: Single<&Descriptors>,
+    mut sync_objects: Single<&mut SyncObjects>,
+    mut frame_data: Single<&mut FrameData>,
     mut commands: Commands,
 ) -> Result<(), vk::Result> {
     unsafe {
@@ -248,7 +276,7 @@ pub fn render(
 
     // TODO: Probably should handle explicit resizes here as well
     if changed {
-        commands.run_schedule_once(ScheduleLabel::RecreateSwapchain);
+        commands.insert_singleton(SwapchainOutdated(true));
     } else if let Err(e) = result {
         return Err(e);
     }
@@ -258,7 +286,7 @@ pub fn render(
     Ok(())
 }
 
-fn wait_device_idle(device: Res<Device>) {
+fn wait_device_idle(device: Single<&Device>) {
     unsafe {
         device
             .device_wait_idle()
@@ -267,8 +295,8 @@ fn wait_device_idle(device: Res<Device>) {
 }
 
 fn destroy_sync_objects(
-    device: Res<Device>,
-    sync_objects: Res<SyncObjects>,
+    device: Single<&Device>,
+    sync_objects: Single<&SyncObjects>,
     mut commands: Commands,
 ) {
     debug!("Destroying sync objects");
@@ -291,24 +319,24 @@ fn destroy_sync_objects(
         }
     }
 
-    commands.remove_resource::<SyncObjects>();
+    commands.remove_singleton::<SyncObjects>();
 }
 
-fn wait_for_device_idle(device: Res<Device>) -> Result<(), vk::Result> {
+fn wait_for_device_idle(device: Single<&Device>) -> Result<(), vk::Result> {
     unsafe { device.device_wait_idle()? }
 
     Ok(())
 }
 
 fn record_command_buffer(
-    device: &Res<Device>,
+    device: &Single<&Device>,
     command_buffer: &vk::CommandBuffer,
-    swapchain: &Res<Swapchain>,
+    swapchain: &Single<&Swapchain>,
     image_index: usize,
-    depth_buffers: &Res<DepthBuffers>,
-    pipeline: &Res<Pipeline>,
+    depth_buffers: &Single<&DepthBuffers>,
+    pipeline: &Single<&Pipeline>,
     meshes: Query<&VulkanMesh>,
-    descriptors: Res<Descriptors>,
+    descriptors: Single<&Descriptors>,
 ) -> Result<(), vk::Result> {
     unsafe {
         let inheritance = vk::CommandBufferInheritanceInfo::default();
@@ -399,12 +427,12 @@ fn record_command_buffer(
             &[],
         );
 
-        for mesh in meshes {
+        meshes.for_each(|mesh| {
             device.cmd_bind_vertex_buffers(*command_buffer, 0, &[mesh.vertex_buffer], &[0]);
             device.cmd_bind_index_buffer(*command_buffer, mesh.index_buffer, 0, IndexType::UINT32);
 
             device.cmd_draw(*command_buffer, mesh.num_indices, 1, 0, 0);
-        }
+        });
 
         device.cmd_end_rendering(*command_buffer);
 

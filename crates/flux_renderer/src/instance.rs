@@ -1,8 +1,8 @@
 use ash::ext::debug_utils;
 use ash::vk::DebugUtilsMessengerEXT;
 use ash::{Instance, vk};
-use flux_ecs::commands::Commands;
-use flux_ecs::resource::{Res, Resource};
+use flux_ecs::Single;
+use flux_ecs::Commands;
 use log::{debug, error, info, warn};
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use std::collections::HashSet;
@@ -22,11 +22,12 @@ pub trait SurfaceProvider {
     fn request_redraw(&self);
 }
 
+#[derive(flux_ecs::Component)]
+#[component(non_send)]
 pub struct SurfaceProviderResource {
     pub provider: Box<dyn SurfaceProvider>,
 }
 
-impl Resource for SurfaceProviderResource {}
 
 impl Deref for SurfaceProviderResource {
     type Target = Box<dyn SurfaceProvider>;
@@ -43,20 +44,20 @@ pub struct AppVersion {
 }
 
 // TODO: These are more related to the application than the renderer, create a separate module for application settings!
+#[derive(flux_ecs::Component)]
 pub struct RendererSettings {
     pub app_name: &'static str,
     pub app_version: AppVersion,
 }
 
-impl Resource for RendererSettings {}
 
+#[derive(flux_ecs::Component)]
 pub struct VulkanInstance {
     pub(crate) entry: ash::Entry,
     pub(crate) instance: Instance,
     debug_messenger: Option<DebugUtilsMessengerEXT>,
 }
 
-impl Resource for VulkanInstance {}
 
 impl Deref for VulkanInstance {
     type Target = Instance;
@@ -67,8 +68,8 @@ impl Deref for VulkanInstance {
 }
 
 pub fn create_instance(
-    surface_provider_resource: Res<SurfaceProviderResource>,
-    renderer_settings: Option<Res<RendererSettings>>,
+    surface_provider_resource: Single<&SurfaceProviderResource>,
+    renderer_settings: Option<Single<&RendererSettings>>,
     mut commands: Commands,
 ) -> Result<(), vk::Result> {
     info!("Creating the vulkan instance");
@@ -166,7 +167,7 @@ pub fn create_instance(
             unsafe { Some(debug_utils_loader.create_debug_utils_messenger(&debug_info, None)?) };
     }
 
-    commands.insert_resource(VulkanInstance {
+    commands.insert_singleton(VulkanInstance {
         entry,
         instance,
         debug_messenger,
@@ -215,7 +216,7 @@ extern "system" fn debug_callback(
     vk::FALSE
 }
 
-pub fn destroy_instance(instance: Res<VulkanInstance>, mut commands: Commands) {
+pub fn destroy_instance(instance: Single<&VulkanInstance>, mut commands: Commands) {
     info!("Destroying vulkan instance");
     if let Some(debug_messenger) = instance.debug_messenger {
         unsafe {
@@ -228,5 +229,5 @@ pub fn destroy_instance(instance: Res<VulkanInstance>, mut commands: Commands) {
         instance.destroy_instance(None);
     }
 
-    commands.remove_resource::<VulkanInstance>();
+    commands.remove_singleton::<VulkanInstance>();
 }

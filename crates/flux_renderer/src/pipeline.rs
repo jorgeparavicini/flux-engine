@@ -1,8 +1,8 @@
 use crate::device::Device;
 use crate::swapchain::Swapchain;
 use ash::vk;
-use flux_ecs::commands::Commands;
-use flux_ecs::resource::{Res, Resource};
+use flux_ecs::Single;
+use flux_ecs::Commands;
 use std::{io, slice};
 use std::ops::Deref;
 // TODO: Error handling is just a placeholder, needs to be improved
@@ -15,6 +15,7 @@ struct Vertex {
     tex_coords: [f32; 2],
 }
 
+#[derive(flux_ecs::Component)]
 pub struct Pipeline {
     pub pipeline: vk::Pipeline,
     // TODO: Not sure if this belongs here
@@ -22,7 +23,6 @@ pub struct Pipeline {
     pub pipeline_layout: vk::PipelineLayout,
 }
 
-impl Resource for Pipeline {}
 
 impl Deref for Pipeline {
     type Target = vk::Pipeline;
@@ -33,8 +33,8 @@ impl Deref for Pipeline {
 }
 
 pub fn create_pipeline(
-    device: Res<Device>,
-    swapchain: Res<Swapchain>,
+    device: Single<&Device>,
+    swapchain: Single<&Swapchain>,
     mut commands: Commands,
 ) -> Result<(), vk::Result> {
     let vertex_shader_module =
@@ -199,7 +199,7 @@ pub fn create_pipeline(
         pipeline_layout,
     };
 
-    commands.insert_resource(pipeline);
+    commands.insert_singleton(pipeline);
 
     Ok(())
 }
@@ -255,8 +255,8 @@ fn read_spv<R: io::Read + io::Seek>(x: &mut R) -> io::Result<Vec<u32>> {
 }
 
 pub fn destroy_pipeline(
-    device: Res<Device>,
-    pipeline: Res<Pipeline>,
+    device: Single<&Device>,
+    pipeline: Single<&Pipeline>,
     mut commands: Commands,
 ) -> Result<(), vk::Result> {
     unsafe {
@@ -265,7 +265,7 @@ pub fn destroy_pipeline(
         device.destroy_pipeline_layout(pipeline.pipeline_layout, None);
     }
 
-    commands.remove_resource::<Pipeline>();
+    commands.remove_singleton::<Pipeline>();
 
     Ok(())
 }

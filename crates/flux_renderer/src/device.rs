@@ -1,8 +1,8 @@
 use crate::instance::VulkanInstance;
 use crate::surface::VulkanSurface;
 use ash::{khr, vk};
-use flux_ecs::commands::Commands;
-use flux_ecs::resource::{Res, Resource};
+use flux_ecs::Single;
+use flux_ecs::Commands;
 use log::{debug, info};
 use std::collections::HashSet;
 use std::ffi::CStr;
@@ -12,6 +12,7 @@ use thiserror::Error;
 
 // TODO: This should probably not be called `DeviceRequirements` as it is also used to create the logical device
 #[derive(Debug, Clone)]
+#[derive(flux_ecs::Component)]
 pub struct DeviceRequirements {
     pub extensions: Vec<&'static CStr>,
     pub prefer_discrete_gpu: bool,
@@ -31,7 +32,6 @@ impl Default for DeviceRequirements {
     }
 }
 
-impl Resource for DeviceRequirements {}
 
 #[derive(Error, Debug)]
 pub enum SuitabilityError {
@@ -68,6 +68,7 @@ impl Display for NoPhysicalDevicesFoundError {
     }
 }
 
+#[derive(flux_ecs::Component)]
 pub struct PhysicalDevice {
     pub physical_device: vk::PhysicalDevice,
     pub indices: QueueFamilyIndices,
@@ -86,7 +87,6 @@ impl Debug for PhysicalDevice {
     }
 }
 
-impl Resource for PhysicalDevice {}
 
 impl Deref for PhysicalDevice {
     type Target = vk::PhysicalDevice;
@@ -97,9 +97,9 @@ impl Deref for PhysicalDevice {
 }
 
 pub fn create_physical_device(
-    instance: Res<VulkanInstance>,
-    surface: Res<VulkanSurface>,
-    device_requirements: Option<Res<DeviceRequirements>>,
+    instance: Single<&VulkanInstance>,
+    surface: Single<&VulkanSurface>,
+    device_requirements: Option<Single<&DeviceRequirements>>,
     mut commands: Commands,
 ) -> Result<(), NoPhysicalDevicesFoundError> {
     info!("Selecting a physical device");
@@ -110,7 +110,7 @@ pub fn create_physical_device(
     };
 
     let device_requirements = device_requirements
-        .map(|res| res.into_inner())
+        .map(|res| res.clone())
         .unwrap_or_default();
 
     let best_device_evaluation = physical_devices
@@ -149,7 +149,7 @@ pub fn create_physical_device(
         .unwrap()
     );
 
-    commands.insert_resource(best_device_evaluation.physical_device);
+    commands.insert_singleton(best_device_evaluation.physical_device);
 
     Ok(())
 }
@@ -395,6 +395,7 @@ fn get_physical_device_score(
     score
 }
 
+#[derive(flux_ecs::Component)]
 pub struct Device {
     pub device: ash::Device,
     pub graphics_queue: vk::Queue,
@@ -405,7 +406,6 @@ pub struct Device {
     pub transfer_queue_index: u32,
 }
 
-impl Resource for Device {}
 
 impl Deref for Device {
     type Target = ash::Device;
@@ -416,12 +416,12 @@ impl Deref for Device {
 }
 
 pub fn create_logical_device(
-    instance: Res<VulkanInstance>,
-    physical_device: Res<PhysicalDevice>,
-    device_requirements: Option<Res<DeviceRequirements>>,
+    instance: Single<&VulkanInstance>,
+    physical_device: Single<&PhysicalDevice>,
+    device_requirements: Option<Single<&DeviceRequirements>>,
     mut commands: Commands,
 ) -> Result<(), vk::Result> {
-    info!("Creating logical device for physical device: {physical_device:?}",);
+    info!("Creating logical device for physical device: {:?}", *physical_device);
 
     let mut unique_indices = HashSet::new();
     unique_indices.insert(physical_device.indices.graphics);
@@ -443,7 +443,7 @@ pub fn create_logical_device(
         .collect();
 
     let requirements = device_requirements
-        .map(|res| res.into_inner())
+        .map(|res| res.clone())
         .unwrap_or_default();
 
     let extensions = requirements
@@ -482,15 +482,15 @@ pub fn create_logical_device(
         transfer_queue_index: physical_device.indices.transfer,
     };
 
-    commands.insert_resource(logical_device);
+    commands.insert_singleton(logical_device);
 
     Ok(())
 }
 
-pub fn destroy_logical_device(device: Res<Device>, mut commands: Commands) {
+pub fn destroy_logical_device(device: Single<&Device>, mut commands: Commands) {
     info!("Destroying logical device");
 
     unsafe { device.destroy_device(None) };
 
-    commands.remove_resource::<Device>();
+    commands.remove_singleton::<Device>();
 }
