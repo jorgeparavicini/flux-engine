@@ -27,6 +27,7 @@
 mod access;
 mod bundle;
 mod entity;
+mod event;
 mod grant;
 mod query;
 mod registry;
@@ -42,6 +43,7 @@ pub mod reference;
 pub use component::{Component, ComponentKey, StorageClass, ThreadSafeComponent};
 pub use bundle::Bundle;
 pub use entity::{Entities, Entity};
+pub use event::{EventReader, EventWriter};
 pub use registry::ComponentId;
 pub use relation::{ChildOf, Relation};
 pub use schedule::{Schedule, SystemLabel};

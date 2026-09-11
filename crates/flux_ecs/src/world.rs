@@ -40,6 +40,7 @@ pub struct World {
     alloc: ChunkAlloc,
     version: u64,
     hierarchy: HierarchyIndex,
+    events: crate::event::EventRegistry,
 }
 
 /// Entities grouped by `ChildOf` depth, rebuilt from the relation graph when
@@ -57,6 +58,7 @@ pub struct WorldCells<'w> {
     pub(crate) archetypes: &'w Archetypes,
     pub(crate) reg: &'w Registry,
     pub(crate) entities: &'w Entities,
+    pub(crate) events: &'w crate::event::EventRegistry,
 }
 
 impl World {
@@ -1009,7 +1011,24 @@ impl World {
             archetypes: &self.archetypes,
             reg: &self.registry,
             entities: &self.entities,
+            events: &self.events,
         }
+    }
+
+    /// Sends an event, appending it to `E`'s buffer for readers to consume.
+    pub fn send_event<E: Send + Sync + 'static>(&mut self, event: E) {
+        self.events.send(event);
+    }
+
+    /// Registers a new reader of `E`, returning its id; it sees only events
+    /// sent after this call.
+    pub(crate) fn register_event_reader<E: Send + Sync + 'static>(&mut self) -> usize {
+        self.events.register_reader::<E>()
+    }
+
+    /// Drops events of type `E` no registered reader can still reach.
+    pub(crate) fn reclaim_events<E: Send + Sync + 'static>(&mut self) {
+        self.events.reclaim::<E>();
     }
 
     fn locate<T: Component>(&self, entity: Entity) -> Option<(ChunkId, u16, usize, ArchetypeId)> {
