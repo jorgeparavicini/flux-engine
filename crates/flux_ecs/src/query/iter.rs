@@ -70,8 +70,11 @@ impl<'w, 's, D: QueryData, F: QueryFilter> Query<'w, 's, D, F> {
                         // SAFETY: this thread owns a disjoint set of chunks, so
                         // its column slices alias no other thread's.
                         if let Some(mut columns) = unsafe { D::fetch(&view, plan, &mut grant) } {
+                            let mask = D::enabled_mask(&view);
                             for row in 0..view.len() {
-                                f(D::row(&mut columns, row));
+                                if row_enabled(&mask, row) {
+                                    f(D::row(&mut columns, row));
+                                }
                             }
                         }
                     }
@@ -96,11 +99,21 @@ impl<'w, 's, D: QueryData, F: QueryFilter> Query<'w, 's, D, F> {
     /// time. Use `chunks` when whole columns are wanted at once.
     pub fn for_each(self, mut f: impl FnMut(D::Item<'_>)) {
         let mut iter = self.chunks();
-        while let Some((mut columns, len)) = iter.next_chunk() {
+        while let Some((mut columns, len, mask)) = iter.next_chunk() {
             for row in 0..len {
-                f(D::row(&mut columns, row));
+                if row_enabled(&mask, row) {
+                    f(D::row(&mut columns, row));
+                }
             }
         }
+    }
+}
+
+/// Whether `row` is enabled under `mask` (`None` = every row enabled).
+fn row_enabled(mask: &Option<Vec<u64>>, row: usize) -> bool {
+    match mask {
+        None => true,
+        Some(words) => words[row / 64] & (1 << (row % 64)) != 0,
     }
 }
 
@@ -120,7 +133,7 @@ pub struct ChunkIter<'w, 's, D: QueryData, F: QueryFilter = ()> {
 }
 
 impl<'w, D: QueryData, F: QueryFilter> ChunkIter<'w, '_, D, F> {
-    pub(crate) fn next_chunk(&mut self) -> Option<(D::Columns<'w>, usize)> {
+    pub(crate) fn next_chunk(&mut self) -> Option<(D::Columns<'w>, usize, Option<Vec<u64>>)> {
         loop {
             let arch_id = *self.query.state.matched().get(self.archetype_index)?;
             let arch = self.query.archetypes.get(arch_id);
@@ -159,7 +172,8 @@ impl<'w, D: QueryData, F: QueryFilter> ChunkIter<'w, '_, D, F> {
             // SAFETY: `chunk` belongs to `arch`, which the state matched
             // against D's requirements; `plan` was resolved from its layout.
             if let Some(columns) = unsafe { D::fetch(&view, plan, &mut self.query.grant) } {
-                return Some((columns, len));
+                let mask = D::enabled_mask(&view);
+                return Some((columns, len, mask));
             }
         }
     }
@@ -169,7 +183,7 @@ impl<'w, D: QueryData, F: QueryFilter> Iterator for ChunkIter<'w, '_, D, F> {
     type Item = D::Columns<'w>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.next_chunk().map(|(columns, _)| columns)
+        self.next_chunk().map(|(columns, _, _)| columns)
     }
 }
 

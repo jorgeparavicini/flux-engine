@@ -90,6 +90,39 @@ pub unsafe trait QueryData {
     }
 
     fn row<'w, 'a>(columns: &'a mut Self::Columns<'w>, row: usize) -> Self::Item<'a>;
+
+    /// Combined enabled mask over `view` for this data's toggleable
+    /// components. `None` means every row is enabled; otherwise a set bit
+    /// marks an enabled row. Masks for multiple components are AND-ed.
+    #[allow(unused_variables)]
+    fn enabled_mask(view: &ChunkView<'_>) -> Option<Vec<u64>> {
+        None
+    }
+}
+
+/// The enabled mask for `T`'s column in `view`, present only when `T` is
+/// toggleable and the chunk has materialized a mask.
+fn toggleable_mask<T: Component>(view: &ChunkView<'_>) -> Option<Vec<u64>> {
+    if !T::TOGGLEABLE {
+        return None;
+    }
+    let column = view.column_index(T::KEY)?;
+    view.chunks
+        .enabled_mask(view.chunk, column)
+        .map(<[u64]>::to_vec)
+}
+
+/// AND two optional masks, treating `None` as the all-enabled identity.
+fn and_masks(a: Option<Vec<u64>>, b: Option<Vec<u64>>) -> Option<Vec<u64>> {
+    match (a, b) {
+        (None, m) | (m, None) => m,
+        (Some(mut a), Some(b)) => {
+            for (x, y) in a.iter_mut().zip(b.iter()) {
+                *x &= *y;
+            }
+            Some(a)
+        }
+    }
 }
 
 /// The signature position of `key`'s column in `layout`, if present.
@@ -128,6 +161,10 @@ unsafe impl<T: Component> QueryData for &T {
     fn row<'w, 'a>(columns: &'a mut Self::Columns<'w>, row: usize) -> Self::Item<'a> {
         &columns[row]
     }
+
+    fn enabled_mask(view: &ChunkView<'_>) -> Option<Vec<u64>> {
+        toggleable_mask::<T>(view)
+    }
 }
 
 unsafe impl<T: Component> QueryData for &mut T {
@@ -154,6 +191,10 @@ unsafe impl<T: Component> QueryData for &mut T {
 
     fn row<'w, 'a>(columns: &'a mut Self::Columns<'w>, row: usize) -> Self::Item<'a> {
         &mut columns[row]
+    }
+
+    fn enabled_mask(view: &ChunkView<'_>) -> Option<Vec<u64>> {
+        toggleable_mask::<T>(view)
     }
 }
 
@@ -263,6 +304,12 @@ macro_rules! tuple_query_data {
             fn row<'w, 'a>(columns: &'a mut Self::Columns<'w>, row: usize) -> Self::Item<'a> {
                 let ($($t,)+) = columns;
                 ($($t::row($t, row),)+)
+            }
+
+            fn enabled_mask(view: &ChunkView<'_>) -> Option<Vec<u64>> {
+                let mask = None;
+                $( let mask = and_masks(mask, $t::enabled_mask(view)); )+
+                mask
             }
         }
     }

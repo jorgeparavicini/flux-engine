@@ -270,7 +270,7 @@ where
     let mut found = None;
     let mut count = 0usize;
     let mut iter = query.chunks();
-    while let Some((columns, len)) = iter.next_chunk() {
+    while let Some((columns, len, _mask)) = iter.next_chunk() {
         count += len;
         if len == 1 && found.is_none() {
             found = Some(columns);

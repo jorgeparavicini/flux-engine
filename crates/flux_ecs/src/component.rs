@@ -72,6 +72,10 @@ pub trait Component: 'static {
     /// Whether this type must stay on the thread that created it.
     /// Set by `#[component(non_send)]`.
     const NON_SEND: bool = false;
+
+    /// Whether presence can be toggled per entity without an archetype move.
+    /// Set by `#[component(toggleable)]`.
+    const TOGGLEABLE: bool = false;
 }
 
 #[diagnostic::on_unimplemented(

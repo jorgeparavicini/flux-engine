@@ -33,6 +33,7 @@ pub(crate) unsafe fn alloc_row(
     unsafe { ptr.write(entity) };
     chunks.set_len(chunk, row + 1);
     chunks.bump_order_version(chunk);
+    chunks.enable_row(chunk, row);
     arch.non_full = (chunks.len(chunk) < arch.layout.capacity).then_some(chunk);
     (chunk, row)
 }
@@ -164,6 +165,7 @@ pub(crate) unsafe fn swap_remove_row(
         }
         let entity = unsafe { entity_at(chunks, &arch.layout, chunk, last) };
         unsafe { entity_slot_ptr(chunks, &arch.layout, chunk, row).write(entity) };
+        chunks.move_enabled_bit(chunk, last, row);
         Some(entity)
     } else {
         None
@@ -234,6 +236,13 @@ pub(crate) unsafe fn move_row(
                         size,
                     );
                 }
+            }
+            if reg.info(src_sig[src_col]).toggleable {
+                chunks.transfer_enabled_bit(
+                    (src_chunk, src_col, src_row),
+                    (dst_chunk, dst_col, dst_row),
+                    dst_arch.layout.capacity,
+                );
             }
             src_col += 1;
             dst_col += 1;
@@ -397,6 +406,15 @@ pub(crate) unsafe fn move_full_chunk(
                         let src = component_ptr(chunks, src_layout, reg, src_chunk, i, moved as u16);
                         let dst = component_ptr(chunks, &dst_arch.layout, reg, dst_chunk, j, dst_start as u16);
                         std::ptr::copy_nonoverlapping(src, dst, size * run);
+                    }
+                }
+                if reg.info(src_sig[i]).toggleable {
+                    for k in 0..run {
+                        chunks.transfer_enabled_bit(
+                            (src_chunk, i, (moved + k) as u16),
+                            (dst_chunk, j, (dst_start + k) as u16),
+                            dst_arch.layout.capacity,
+                        );
                     }
                 }
                 i += 1;

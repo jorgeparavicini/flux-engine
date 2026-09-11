@@ -23,6 +23,7 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
     }
 
     let mut non_send = false;
+    let mut toggleable = false;
     for attr in input.attrs {
         if !attr.path().is_ident("component") {
             continue;
@@ -30,6 +31,9 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
         let result = attr.parse_nested_meta(|meta| {
             if meta.path.is_ident("non_send") {
                 non_send = true;
+                Ok(())
+            } else if meta.path.is_ident("toggleable") {
+                toggleable = true;
                 Ok(())
             } else {
                 Err(meta.error("unknown `component` attribute; expected `non_send`"))
@@ -59,6 +63,7 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
         impl ::flux_ecs::Component for #name {
             const KEY: ::flux_ecs::ComponentKey = ::flux_ecs::ComponentKey::from_path(concat!(module_path!(), "::", #name_str));
             const NON_SEND: bool = #non_send;
+            const TOGGLEABLE: bool = #toggleable;
         }
         #assertion
     }

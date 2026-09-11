@@ -1,5 +1,6 @@
 use crate::storage::alloc::ChunkAlloc;
 use crate::storage::archetype::ArchetypeId;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::ptr::NonNull;
 
@@ -33,6 +34,9 @@ pub(crate) struct Chunks {
     order_version: Vec<u64>,
     /// Dead ids awaiting reuse.
     free: Vec<ChunkId>,
+    /// Per (chunk, toggleable column) enabled bitmasks, materialized on the
+    /// first disable. Absent means every row is enabled. A set bit is enabled.
+    enabled: HashMap<(ChunkId, usize), Vec<u64>>,
 }
 
 // SAFETY: shared (`&Chunks`) access exposes only atomic version stamps
@@ -96,6 +100,7 @@ impl Chunks {
             "double destroy of chunk {id:?}: id is already on the free list"
         );
         self.order_version[i] += 1;
+        self.enabled.retain(|&(chunk, _), _| chunk != id);
         unsafe { alloc.dealloc(self.base[i]) };
         self.free.push(id);
     }
@@ -144,6 +149,78 @@ impl Chunks {
     
     pub fn stamp_added_version(&self, id: ChunkId, column: usize, version: u64) {
         self.added_versions[id.0 as usize][column].store(version, Ordering::Relaxed);
+    }
+
+    /// Whether `row`'s bit is set in `column`'s enabled mask (true if no mask).
+    pub fn is_enabled(&self, id: ChunkId, column: usize, row: u16) -> bool {
+        match self.enabled.get(&(id, column)) {
+            Some(mask) => mask[row as usize / 64] & (1 << (row % 64)) != 0,
+            None => true,
+        }
+    }
+
+    /// Sets `row`'s enabled bit in `column`, materializing an all-enabled mask
+    /// (`capacity` bits) on first use.
+    pub fn set_enabled(&mut self, id: ChunkId, column: usize, row: u16, capacity: u16, value: bool) {
+        let mask = self.enabled.entry((id, column)).or_insert_with(|| {
+            vec![u64::MAX; (capacity as usize).div_ceil(64)]
+        });
+        let (word, bit) = (row as usize / 64, row % 64);
+        if value {
+            mask[word] |= 1 << bit;
+        } else {
+            mask[word] &= !(1 << bit);
+        }
+    }
+
+    /// The enabled mask words for `column`, if one exists.
+    pub fn enabled_mask(&self, id: ChunkId, column: usize) -> Option<&[u64]> {
+        self.enabled.get(&(id, column)).map(Vec::as_slice)
+    }
+
+    /// Copies `from`'s enabled bit into `to` for every mask on `chunk`
+    /// (swap-remove maintenance).
+    pub fn move_enabled_bit(&mut self, chunk: ChunkId, from: u16, to: u16) {
+        for (&(c, _), mask) in self.enabled.iter_mut() {
+            if c != chunk {
+                continue;
+            }
+            let set = mask[from as usize / 64] & (1 << (from % 64)) != 0;
+            let (word, bit) = (to as usize / 64, to % 64);
+            if set {
+                mask[word] |= 1 << bit;
+            } else {
+                mask[word] &= !(1 << bit);
+            }
+        }
+    }
+
+    /// Copies one column's enabled bit from a source `(chunk, column, row)` to
+    /// a destination one, which may be in another chunk. A no-op when the
+    /// source is enabled and the destination has no materialized mask, since
+    /// rows default to enabled.
+    pub fn transfer_enabled_bit(
+        &mut self,
+        src: (ChunkId, usize, u16),
+        dst: (ChunkId, usize, u16),
+        dst_capacity: u16,
+    ) {
+        let (src_chunk, src_col, src_row) = src;
+        let (dst_chunk, dst_col, dst_row) = dst;
+        let enabled = self.is_enabled(src_chunk, src_col, src_row);
+        if enabled && !self.enabled.contains_key(&(dst_chunk, dst_col)) {
+            return;
+        }
+        self.set_enabled(dst_chunk, dst_col, dst_row, dst_capacity, enabled);
+    }
+
+    /// Marks `row` enabled in every mask on `chunk` (new-row default).
+    pub fn enable_row(&mut self, chunk: ChunkId, row: u16) {
+        for (&(c, _), mask) in self.enabled.iter_mut() {
+            if c == chunk {
+                mask[row as usize / 64] |= 1 << (row % 64);
+            }
+        }
     }
 
     fn new_stamps(columns: usize) -> Box<[AtomicU64]> {

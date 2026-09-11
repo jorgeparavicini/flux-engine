@@ -142,6 +142,41 @@ impl World {
         self.len() == 0
     }
 
+    /// Enables or disables `entity`'s toggleable `T` without an archetype
+    /// move. A disabled component is skipped by iteration but still occupies
+    /// its column; toggling bumps the chunk's change-detection version.
+    ///
+    /// Returns false if the entity is dead or lacks `T`.
+    pub fn set_enabled<T: Component>(&mut self, entity: Entity, value: bool) -> bool {
+        debug_assert!(T::TOGGLEABLE, "set_enabled requires a #[component(toggleable)] type");
+        let Some((chunk, row, column, arch_id)) = self.locate::<T>(entity) else {
+            return false;
+        };
+        let capacity = self.archetypes.get(arch_id).layout.capacity;
+        self.chunks.set_enabled(chunk, column, row, capacity, value);
+        self.version += 1;
+        self.chunks.stamp_write_version(chunk, column, self.version);
+        true
+    }
+
+    /// Enables `entity`'s toggleable `T`. See [`set_enabled`](Self::set_enabled).
+    pub fn enable<T: Component>(&mut self, entity: Entity) -> bool {
+        self.set_enabled::<T>(entity, true)
+    }
+
+    /// Disables `entity`'s toggleable `T`. See [`set_enabled`](Self::set_enabled).
+    pub fn disable<T: Component>(&mut self, entity: Entity) -> bool {
+        self.set_enabled::<T>(entity, false)
+    }
+
+    /// Whether `entity` has an enabled `T`. False if dead, absent, or disabled.
+    pub fn is_enabled<T: Component>(&self, entity: Entity) -> bool {
+        match self.locate::<T>(entity) {
+            Some((chunk, row, column, _)) => self.chunks.is_enabled(chunk, column, row),
+            None => false,
+        }
+    }
+
     /// A reference to `entity`'s `T`.
     ///
     /// None if the entity is dead or does not have the component.
@@ -978,5 +1013,101 @@ mod tests {
             assert_eq!(drops.get(), 1);
         }
         assert_eq!(drops.get(), 51, "fifty live + one already dropped");
+    }
+
+    // ---------------------------------------------------------- toggleable
+
+    #[derive(Copy, Clone, PartialEq, Debug)]
+    struct Toggle;
+    impl Component for Toggle {
+        const KEY: ComponentKey = ComponentKey::from_path("world::tests::Toggle");
+        const STORAGE: StorageClass = StorageClass::Tag;
+        const TOGGLEABLE: bool = true;
+    }
+
+    #[test]
+    fn toggling_moves_no_entity() {
+        let mut world = World::new();
+        // Several chunks of a single archetype.
+        let entities: Vec<Entity> = (0..5_000u64).map(|i| world.spawn((A(i), Toggle))).collect();
+        let before: Vec<_> = entities.iter().map(|&e| world.locate::<A>(e)).collect();
+        let archetypes = world.archetypes.len();
+
+        for &e in &entities {
+            assert!(world.disable::<Toggle>(e));
+        }
+
+        assert_eq!(world.archetypes.len(), archetypes, "no new archetype");
+        for (&e, loc) in entities.iter().zip(&before) {
+            assert_eq!(world.locate::<A>(e), *loc, "entity stayed in place");
+            assert!(!world.is_enabled::<Toggle>(e));
+        }
+    }
+
+    #[test]
+    fn for_each_skips_disabled_rows() {
+        let mut world = World::new();
+        let entities: Vec<Entity> = (0..200u64).map(|i| world.spawn((A(i), Toggle))).collect();
+        for (i, &e) in entities.iter().enumerate() {
+            if i % 2 == 0 {
+                world.disable::<Toggle>(e);
+            }
+        }
+
+        let mut state = QueryState::<(&A, &Toggle)>::new();
+        let mut seen: Vec<u64> = Vec::new();
+        world.query(&mut state).for_each(|(a, _)| seen.push(a.0));
+
+        let expected: Vec<u64> = (0..200u64).filter(|i| i % 2 == 1).collect();
+        seen.sort_unstable();
+        assert_eq!(seen, expected, "only enabled rows are visited");
+    }
+
+    #[test]
+    fn re_enabling_restores_visibility() {
+        let mut world = World::new();
+        let e = world.spawn((A(7), Toggle));
+        world.disable::<Toggle>(e);
+
+        let mut state = QueryState::<(&A, &Toggle)>::new();
+        let mut count = |world: &mut World| {
+            let mut n = 0;
+            world.query(&mut state).for_each(|_| n += 1);
+            n
+        };
+        assert_eq!(count(&mut world), 0);
+        world.enable::<Toggle>(e);
+        assert_eq!(count(&mut world), 1);
+    }
+
+    #[test]
+    fn disabled_state_survives_a_structural_move() {
+        let mut world = World::new();
+        let e = world.spawn((A(1), Toggle));
+        world.disable::<Toggle>(e);
+        // Growing the signature relocates the entity to a new archetype.
+        world.insert(e, B(2));
+        assert!(!world.is_enabled::<Toggle>(e), "still disabled after the move");
+    }
+
+    #[test]
+    fn batched_insert_preserves_disabled_state() {
+        let mut world = World::new();
+        let entities: Vec<Entity> = (0..300u64).map(|i| world.spawn((A(i), Toggle))).collect();
+        for (i, &e) in entities.iter().enumerate() {
+            if i % 3 == 0 {
+                world.disable::<Toggle>(e);
+            }
+        }
+        let batch: Vec<(Entity, B)> = entities.iter().map(|&e| (e, B(0))).collect();
+        world.insert_batch(batch);
+
+        for (i, &e) in entities.iter().enumerate() {
+            assert_eq!(
+                world.is_enabled::<Toggle>(e),
+                i % 3 != 0,
+                "entity {i} kept its enabled state through the batch insert"
+            );
+        }
     }
 }

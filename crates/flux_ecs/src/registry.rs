@@ -41,6 +41,7 @@ pub(crate) struct ComponentInfo {
     pub drop_fn: Option<unsafe fn(*mut u8, usize)>,
     pub storage: StorageClass,
     pub non_send: bool,
+    pub toggleable: bool,
     #[cfg(debug_assertions)]
     type_id: std::any::TypeId,
 }
@@ -94,6 +95,7 @@ impl Registry {
                 .then_some(drop_in_place_n::<T> as unsafe fn(*mut u8, usize)),
             storage: T::STORAGE,
             non_send: T::NON_SEND,
+            toggleable: T::TOGGLEABLE,
             #[cfg(debug_assertions)]
             type_id: std::any::TypeId::of::<T>(),
         });
