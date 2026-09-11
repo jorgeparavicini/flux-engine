@@ -1,7 +1,7 @@
 use crate::grant::AccessGrant;
 use crate::query::data::QueryData;
 use crate::query::filter::QueryFilter;
-use crate::registry::{ComponentId, Registry};
+use crate::registry::{ComponentId, KeyMap, Registry};
 use crate::storage::alloc::ChunkAlloc;
 use crate::storage::archetype::{ArchetypeId, Archetypes};
 use crate::storage::chunks::{ChunkId, Chunks};
@@ -24,6 +24,7 @@ use crate::{Bundle, Component, Entities, Entity, Query, QueryState};
 #[derive(Default)]
 pub struct World {
     entities: Entities,
+    singletons: KeyMap<Entity>,
     registry: Registry,
     archetypes: Archetypes,
     chunks: Chunks,
@@ -269,6 +270,34 @@ impl World {
         self.version += 1;
         self.stamp_all_columns(dst_chunk, dst_id, true);
         Some(value)
+    }
+
+    /// Spawns or replaces the world's single `T`, returning its entity.
+    ///
+    /// The first call spawns a dedicated entity holding the value; later
+    /// calls replace the value on that entity.
+    pub fn insert_singleton<T: Component>(&mut self, value: T) -> Entity {
+        if let Some(&entity) = self.singletons.get(&T::KEY)
+            && self.is_alive(entity)
+        {
+            self.insert(entity, value);
+            return entity;
+        }
+        let entity = self.spawn((value,));
+        self.singletons.insert(T::KEY, entity);
+        entity
+    }
+
+    /// The world's single `T`, if one was inserted.
+    pub fn singleton<T: Component>(&self) -> Option<&T> {
+        let entity = *self.singletons.get(&T::KEY)?;
+        self.get::<T>(entity)
+    }
+
+    /// Mutable access to the world's single `T`, if one was inserted.
+    pub fn singleton_mut<T: Component>(&mut self) -> Option<&mut T> {
+        let entity = *self.singletons.get(&T::KEY)?;
+        self.get_mut::<T>(entity)
     }
 
     /// The archetype `entity`'s components would move to when adding `id`,

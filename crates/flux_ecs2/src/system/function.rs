@@ -20,6 +20,11 @@ pub trait System {
 /// (queries, locals).
 /// A function whose parameters conflict — two of them accessing the same
 /// component with at least one write — is rejected during code generation.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a valid system",
+    label = "invalid system",
+    note = "systems are functions whose arguments are all system parameters: `Query<..>`, `Single<..>`, or `Local<..>`"
+)]
 pub trait IntoSystem<Marker> {
     type System: System;
 
@@ -37,6 +42,10 @@ pub trait ParamSet: 'static {
 }
 
 /// A function callable with a parameter set's fetched items.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a valid system",
+    note = "every argument must be a system parameter: `Query<..>`, `Single<..>`, or `Local<..>`"
+)]
 pub trait ParamFunction<Params: ParamSet>: 'static {
     /// Fetches every parameter at `version` and calls the function.
     ///

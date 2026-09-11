@@ -1,0 +1,16 @@
+error[E0277]: `fn(u32) {not_a_system}` is not a valid system
+  --> tests/compile_fail/invalid_system_parameter.rs:11:21
+   |
+11 |     accepts_systems(not_a_system);
+   |     --------------- ^^^^^^^^^^^^ invalid system
+   |     |
+   |     required by a bound introduced by this call
+   |
+   = help: the trait `flux_ecs2::system::function::ParamFunction<_>` is not implemented for fn item `fn(u32) {not_a_system}`
+   = note: systems are functions whose arguments are all system parameters: `Query<..>`, `Single<..>`, or `Local<..>`
+   = note: required for `fn(u32) {not_a_system}` to implement `IntoSystem<fn(_)>`
+note: required by a bound in `accepts_systems`
+  --> tests/compile_fail/invalid_system_parameter.rs:6:37
+   |
+ 6 | fn accepts_systems<M>(_system: impl IntoSystem<M>) {}
+   |                                     ^^^^^^^^^^^^^ required by this bound in `accepts_systems`

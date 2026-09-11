@@ -8,6 +8,10 @@ use std::marker::PhantomData;
 /// Filters narrow matching only: they fetch nothing and declare no access.
 /// The unit filter `()` passes everything; tuples of filters require every
 /// member to pass.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a query filter",
+    note = "filters are `With<T>`, `Without<T>`, `Changed<T>`, `Added<T>`, `()`, or a tuple of filters"
+)]
 pub trait QueryFilter {
     /// Whether an archetype with this signature passes.
     fn filter_matches(signature: &[ComponentId], reg: &Registry) -> bool;
