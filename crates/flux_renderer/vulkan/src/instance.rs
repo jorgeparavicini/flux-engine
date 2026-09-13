@@ -3,38 +3,14 @@ use ash::vk::DebugUtilsMessengerEXT;
 use ash::{Instance, vk};
 use flux_ecs::Commands;
 use flux_ecs::Single;
+use flux_renderer_abstractions::surface::SurfaceProviderResource;
 use log::{debug, error, info, warn};
-use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use std::collections::HashSet;
 use std::ffi::{CStr, c_void};
 use std::ops::Deref;
 
 const VALIDATION_ENABLED: bool = cfg!(debug_assertions);
 const VALIDATION_LAYER: &CStr = c"VK_LAYER_KHRONOS_validation";
-
-pub trait SurfaceProvider {
-    fn get_display_handle(&self) -> RawDisplayHandle;
-
-    fn get_window_handle(&self) -> RawWindowHandle;
-
-    fn get_extent(&self) -> (u32, u32);
-
-    fn request_redraw(&self);
-}
-
-#[derive(flux_ecs::Component)]
-#[component(non_send)]
-pub struct SurfaceProviderResource {
-    pub provider: Box<dyn SurfaceProvider>,
-}
-
-impl Deref for SurfaceProviderResource {
-    type Target = Box<dyn SurfaceProvider>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.provider
-    }
-}
 
 pub struct AppVersion {
     pub major: u32,

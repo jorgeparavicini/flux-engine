@@ -3,10 +3,14 @@ name = "flux_renderer"
 version.workspace = true
 edition.workspace = true
 
+[features]
+default = ["vulkan"]
+vulkan = ["dep:flux_renderer_vulkan"]
+
 [dependencies]
 flux_renderer_abstractions = { workspace = true }
 flux_renderer_macros = { workspace = true }
-flux_renderer_vulkan = { workspace = true }
+flux_renderer_vulkan = { workspace = true, optional = true }
 
 [lints]
 workspace = true

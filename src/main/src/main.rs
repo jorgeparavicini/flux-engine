@@ -1,5 +1,5 @@
 use flux_ecs::World;
-use flux_renderer::instance::{SurfaceProvider, SurfaceProviderResource};
+use flux_renderer::{SurfaceProvider, SurfaceProviderResource};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
 use winit::raw_window_handle::{

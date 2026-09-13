@@ -1,9 +1,10 @@
 use crate::device::{Device, PhysicalDevice};
-use crate::instance::{SurfaceProviderResource, VulkanInstance};
+use crate::instance::VulkanInstance;
 use crate::surface::VulkanSurface;
 use ash::{khr, vk};
 use flux_ecs::Commands;
 use flux_ecs::Single;
+use flux_renderer_abstractions::surface::SurfaceProviderResource;
 use log::debug;
 use std::ops::Deref;
 

@@ -605,6 +605,10 @@ dependencies = [
 [[package]]
 name = "flux_renderer_abstractions"
 version = "0.1.0"
+dependencies = [
+ "flux_ecs",
+ "raw-window-handle",
+]
 
 [[package]]
 name = "flux_renderer_macros"

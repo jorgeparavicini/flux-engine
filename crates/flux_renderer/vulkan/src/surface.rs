@@ -1,8 +1,9 @@
-use crate::instance::{SurfaceProviderResource, VulkanInstance};
+use crate::instance::VulkanInstance;
 use ash::khr::surface;
 use ash::vk;
 use flux_ecs::Commands;
 use flux_ecs::Single;
+use flux_renderer_abstractions::surface::SurfaceProviderResource;
 use log::info;
 use std::ops::Deref;
 
