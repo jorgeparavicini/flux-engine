@@ -4,13 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-flux_ecs = { path = "../flux_ecs" }
+flux_renderer_abstractions = { version = "0.1.0", path = "abstractions" }
+flux_renderer_macros = { version = "0.1.0", path = "macros" }
+flux_renderer_vulkan = { version = "0.1.0", path = "vulkan" }
 
-ash = { version = "0.38.0", features = ["linked"] }
-ash-window = "0.13.0"
-log = "0.4.27"
-raw-window-handle = "0.6.2"
-thiserror = "2.0.12"
-glam = "0.30.5"
-flux_renderer_macros = { version = "0.1.0", path = "../flux_renderer_macros" }
-flux_renderer_abstractions = { version = "0.1.0", path = "../flux_renderer_abstractions" }
+[lints]
+workspace = true

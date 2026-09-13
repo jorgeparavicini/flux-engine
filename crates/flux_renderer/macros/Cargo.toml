@@ -4,8 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-flux_renderer_abstractions = { version = "0.1.0", path = "../flux_renderer_abstractions" }
+flux_renderer_abstractions = { version = "0.1.0", path = "../abstractions" }
 syn = { workspace = true, features = ["full"] }
 
 [lib]
 proc-macro = true
+
+[lints]
+workspace = true
