@@ -3,9 +3,9 @@ use crate::command_pool::CommandPools;
 use crate::device::{Device, PhysicalDevice};
 use crate::instance::VulkanInstance;
 use ash::vk;
-use flux_ecs::Single;
 use flux_ecs::Commands;
 use flux_ecs::Query;
+use flux_ecs::Single;
 use flux_renderer_abstractions::mesh::VertexFormat::Float32x3;
 use flux_renderer_abstractions::mesh::{Mesh, Vertex, VertexAttribute, VertexLayout};
 use log::debug;
@@ -52,7 +52,6 @@ pub struct VulkanMesh {
     pub num_indices: u32,
 }
 
-
 pub fn create_buffers(
     instance: Single<&VulkanInstance>,
     physical_device: Single<&PhysicalDevice>,
@@ -66,26 +65,19 @@ pub fn create_buffers(
 
     meshes.for_each(|mesh| {
         let mesh = &mesh.0;
-        let (vertex_buffer, vertex_buffer_memory) = create_vertex_buffer(
-            &instance,
-            &physical_device,
-            &device,
-            &command_pools,
-            mesh,
-        )
-            .expect("Failed to create vertex buffer");
+        let (vertex_buffer, vertex_buffer_memory) =
+            create_vertex_buffer(&instance, &physical_device, &device, &command_pools, mesh)
+                .expect("Failed to create vertex buffer");
 
-        let (index_buffer, index_buffer_memory) = create_index_buffer(
-            &instance,
-            &physical_device,
-            &device,
-            &command_pools,
-            mesh,
-        )
-            .expect("Failed to create index buffer")
-            .unwrap_or((vk::Buffer::null(), vk::DeviceMemory::null()));
+        let (index_buffer, index_buffer_memory) =
+            create_index_buffer(&instance, &physical_device, &device, &command_pools, mesh)
+                .expect("Failed to create index buffer")
+                .unwrap_or((vk::Buffer::null(), vk::DeviceMemory::null()));
 
-        let num_indices = mesh.indices.as_ref().map_or(0, |indices| indices.len() as u32);
+        let num_indices = mesh
+            .indices
+            .as_ref()
+            .map_or(0, |indices| indices.len() as u32);
 
         commands.spawn((VulkanMesh {
             vertex_buffer,
@@ -117,9 +109,8 @@ fn create_vertex_buffer(
         vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
     )?;
 
-    let memory = unsafe {
-        device.map_memory(staging_buffer_memory, 0, size, vk::MemoryMapFlags::empty())?
-    };
+    let memory =
+        unsafe { device.map_memory(staging_buffer_memory, 0, size, vk::MemoryMapFlags::empty())? };
 
     unsafe {
         copy_nonoverlapping(mesh.vertices.as_ptr(), memory.cast(), mesh.vertices.len());
@@ -154,7 +145,11 @@ fn create_index_buffer(
 ) -> Result<Option<(vk::Buffer, vk::DeviceMemory)>, vk::Result> {
     debug!("Creating index buffer for mesh {:?}", mesh);
 
-    let Some(indices) = mesh.indices.as_deref().filter(|indices| !indices.is_empty()) else {
+    let Some(indices) = mesh
+        .indices
+        .as_deref()
+        .filter(|indices| !indices.is_empty())
+    else {
         return Ok(None);
     };
 
@@ -170,7 +165,12 @@ fn create_index_buffer(
     )?;
 
     let memory = unsafe {
-        device.map_memory(staging_buffer_memory, 0, size as u64, vk::MemoryMapFlags::empty())?
+        device.map_memory(
+            staging_buffer_memory,
+            0,
+            size as u64,
+            vk::MemoryMapFlags::empty(),
+        )?
     };
 
     unsafe {
@@ -187,7 +187,13 @@ fn create_index_buffer(
         vk::MemoryPropertyFlags::DEVICE_LOCAL,
     )?;
 
-    copy_buffer(device, command_pools, staging_buffer, index_buffer, size as u64)?;
+    copy_buffer(
+        device,
+        command_pools,
+        staging_buffer,
+        index_buffer,
+        size as u64,
+    )?;
 
     unsafe {
         device.destroy_buffer(staging_buffer, None);

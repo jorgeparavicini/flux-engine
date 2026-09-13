@@ -1,8 +1,8 @@
 use crate::storage::alloc::ChunkAlloc;
 use crate::storage::archetype::ArchetypeId;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::ptr::NonNull;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Dense index of a chunk within a world. Ids are recycled after
 /// [`Chunks::destroy`]; holding one across a destroy is invalid.
@@ -143,7 +143,7 @@ impl Chunks {
     pub fn stamp_write_version(&self, id: ChunkId, column: usize, version: u64) {
         self.write_versions[id.0 as usize][column].store(version, Ordering::Relaxed);
     }
-    
+
     pub fn stamp_added_version(&self, id: ChunkId, column: usize, version: u64) {
         self.added_versions[id.0 as usize][column].store(version, Ordering::Relaxed);
     }
@@ -158,10 +158,18 @@ impl Chunks {
 
     /// Sets `row`'s enabled bit in `column`, materializing an all-enabled mask
     /// (`capacity` bits) on first use.
-    pub fn set_enabled(&mut self, id: ChunkId, column: usize, row: u16, capacity: u16, value: bool) {
-        let mask = self.enabled.entry((id, column)).or_insert_with(|| {
-            vec![u64::MAX; (capacity as usize).div_ceil(64)]
-        });
+    pub fn set_enabled(
+        &mut self,
+        id: ChunkId,
+        column: usize,
+        row: u16,
+        capacity: u16,
+        value: bool,
+    ) {
+        let mask = self
+            .enabled
+            .entry((id, column))
+            .or_insert_with(|| vec![u64::MAX; (capacity as usize).div_ceil(64)]);
         let (word, bit) = (row as usize / 64, row % 64);
         if value {
             mask[word] |= 1 << bit;

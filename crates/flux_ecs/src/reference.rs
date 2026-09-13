@@ -62,7 +62,10 @@ impl RefWorld {
         if R::ACYCLIC && self.is_r_ancestor::<R>(entity, target) {
             return false;
         }
-        self.relations.entry(entity).or_default().insert(R::KEY, target);
+        self.relations
+            .entry(entity)
+            .or_default()
+            .insert(R::KEY, target);
         true
     }
 
@@ -160,13 +163,17 @@ impl RefWorld {
     }
 
     pub fn entities_with<T: Component>(&self) -> Vec<Entity> {
-        let mut entities = self.data.iter().filter_map(|(entity, bag)| {
-            if bag.contains_key(&TypeId::of::<T>()) {
-                Some(*entity)
-            } else {
-                None
-            }
-        }).collect::<Vec<_>>();
+        let mut entities = self
+            .data
+            .iter()
+            .filter_map(|(entity, bag)| {
+                if bag.contains_key(&TypeId::of::<T>()) {
+                    Some(*entity)
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
         entities.sort();
         entities
     }
@@ -555,7 +562,7 @@ mod tests {
         RemoveVel(usize),
     }
 
-    fn op_strategy() -> impl Strategy<Value=Op> {
+    fn op_strategy() -> impl Strategy<Value = Op> {
         prop_oneof![
             3 => Just(Op::Spawn),
             2 => (0usize..64).prop_map(Op::Despawn),

@@ -1,23 +1,23 @@
 use crate::buffers::{
     create_index_buffer, create_uniform_buffer, create_vertex_buffer, destroy_buffers,
 };
-use crate::command_buffer::{create_command_buffer, destroy_command_buffers, CommandBuffers};
+use crate::command_buffer::{CommandBuffers, create_command_buffer, destroy_command_buffers};
 use crate::command_pool::{create_command_pools, destroy_command_pools};
-use crate::depth_buffers::{create_depth_buffers, destroy_depth_buffers, DepthBuffers};
-use crate::descriptors::{create_descriptors, destroy_descriptors, Descriptors};
+use crate::depth_buffers::{DepthBuffers, create_depth_buffers, destroy_depth_buffers};
+use crate::descriptors::{Descriptors, create_descriptors, destroy_descriptors};
 use crate::device::{
-    create_logical_device, create_physical_device, destroy_logical_device, Device,
+    Device, create_logical_device, create_physical_device, destroy_logical_device,
 };
-use crate::instance::{create_instance, destroy_instance, VulkanInstance};
-use crate::mesh::{create_buffers, CoolVertex, MeshComponent, VulkanMesh};
-use crate::pipeline::{create_pipeline, destroy_pipeline, Pipeline};
+use crate::instance::{VulkanInstance, create_instance, destroy_instance};
+use crate::mesh::{CoolVertex, MeshComponent, VulkanMesh, create_buffers};
+use crate::pipeline::{Pipeline, create_pipeline, destroy_pipeline};
 use crate::surface::{create_surface, destroy_surface};
-use crate::swapchain::{create_swapchain, destroy_swapchain, Swapchain};
+use crate::swapchain::{Swapchain, create_swapchain, destroy_swapchain};
 use ash::vk;
 use ash::vk::{Handle, IndexType};
-use flux_ecs::Single;
 use flux_ecs::Commands;
 use flux_ecs::Query;
+use flux_ecs::Single;
 use flux_ecs::{Schedule, World};
 use flux_renderer_abstractions::mesh::Mesh;
 use log::debug;
@@ -100,20 +100,36 @@ pub fn init_schedule() -> Schedule {
 pub fn render_schedule() -> Schedule {
     let mut schedule = Schedule::new();
     schedule.add(render);
-    schedule.add(wait_for_device_idle).run_if(swapchain_outdated);
+    schedule
+        .add(wait_for_device_idle)
+        .run_if(swapchain_outdated);
     schedule.add(destroy_descriptors).run_if(swapchain_outdated);
-    schedule.add(destroy_depth_buffers).run_if(swapchain_outdated);
-    schedule.add(destroy_command_buffers).run_if(swapchain_outdated);
-    schedule.add(destroy_command_pools).run_if(swapchain_outdated);
+    schedule
+        .add(destroy_depth_buffers)
+        .run_if(swapchain_outdated);
+    schedule
+        .add(destroy_command_buffers)
+        .run_if(swapchain_outdated);
+    schedule
+        .add(destroy_command_pools)
+        .run_if(swapchain_outdated);
     schedule.add(destroy_pipeline).run_if(swapchain_outdated);
     schedule.add(destroy_swapchain).run_if(swapchain_outdated);
     schedule.add(create_swapchain).run_if(swapchain_outdated);
     schedule.add(create_pipeline).run_if(swapchain_outdated);
-    schedule.add(create_depth_buffers).run_if(swapchain_outdated);
-    schedule.add(create_command_pools).run_if(swapchain_outdated);
+    schedule
+        .add(create_depth_buffers)
+        .run_if(swapchain_outdated);
+    schedule
+        .add(create_command_pools)
+        .run_if(swapchain_outdated);
     schedule.add(create_descriptors).run_if(swapchain_outdated);
-    schedule.add(create_command_buffer).run_if(swapchain_outdated);
-    schedule.add(clear_swapchain_outdated).run_if(swapchain_outdated);
+    schedule
+        .add(create_command_buffer)
+        .run_if(swapchain_outdated);
+    schedule
+        .add(clear_swapchain_outdated)
+        .run_if(swapchain_outdated);
     schedule
 }
 
@@ -141,7 +157,6 @@ pub struct SyncObjects {
     pub in_flight_fences: Vec<vk::Fence>,
     pub images_in_flight: Vec<vk::Fence>,
 }
-
 
 fn create_sync_objects(
     device: Single<&Device>,
@@ -176,12 +191,10 @@ fn create_sync_objects(
     Ok(())
 }
 
-#[derive(Default)]
-#[derive(flux_ecs::Component)]
+#[derive(Default, flux_ecs::Component)]
 pub struct FrameData {
     pub frame_index: usize,
 }
-
 
 pub fn render(
     instance: Single<&VulkanInstance>,

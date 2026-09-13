@@ -64,7 +64,11 @@ struct Driver {
 
 impl Driver {
     fn new() -> Self {
-        Self { real: World::new(), reference: RefWorld::new(), log: Vec::new() }
+        Self {
+            real: World::new(),
+            reference: RefWorld::new(),
+            log: Vec::new(),
+        }
     }
 
     fn pick(&self, i: usize) -> Option<flux_ecs::Entity> {
@@ -99,7 +103,12 @@ impl Driver {
             }
             Op::Despawn(i) => {
                 if let Some(e) = self.pick(i) {
-                    prop_assert_eq!(self.real.despawn(e), self.reference.despawn(e), "despawn({:?})", e);
+                    prop_assert_eq!(
+                        self.real.despawn(e),
+                        self.reference.despawn(e),
+                        "despawn({:?})",
+                        e
+                    );
                 }
             }
             Op::InsertA(i, v) => {
@@ -160,9 +169,18 @@ impl Driver {
     }
 
     fn check_agreement(&self) -> Result<(), TestCaseError> {
-        prop_assert_eq!(self.real.len(), self.reference.len(), "live entity counts diverged");
+        prop_assert_eq!(
+            self.real.len(),
+            self.reference.len(),
+            "live entity counts diverged"
+        );
         for e in &self.log {
-            prop_assert_eq!(self.real.is_alive(*e), self.reference.is_alive(*e), "liveness of {:?}", e);
+            prop_assert_eq!(
+                self.real.is_alive(*e),
+                self.reference.is_alive(*e),
+                "liveness of {:?}",
+                e
+            );
             prop_assert_eq!(
                 self.real.get::<Da>(*e),
                 self.reference.get::<Da>(*e),
@@ -234,9 +252,11 @@ fn one_hundred_thousand_world_ops() {
             11 | 12 => Op::Relate(i, (r >> 48) as usize),
             _ => Op::Unrelate(i),
         };
-        d.apply(&op).unwrap_or_else(|e| panic!("divergence at step {step}: {e}"));
+        d.apply(&op)
+            .unwrap_or_else(|e| panic!("divergence at step {step}: {e}"));
         if step % 64 == 0 {
-            d.check_agreement().unwrap_or_else(|e| panic!("divergence by step {step}: {e}"));
+            d.check_agreement()
+                .unwrap_or_else(|e| panic!("divergence by step {step}: {e}"));
         }
     }
     d.check_agreement().expect("final agreement");

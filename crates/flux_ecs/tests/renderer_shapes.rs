@@ -18,9 +18,21 @@ macro_rules! marker_resource {
     };
 }
 marker_resource!(
-    VulkanInstance, PhysicalDevice, Device, VulkanSurface, Swapchain, Pipeline,
-    DepthBuffers, CommandPools, CommandBuffers, Descriptors, UniformBuffers,
-    VertexBuffer, IndexBuffer, RendererSettings, DeviceRequirements
+    VulkanInstance,
+    PhysicalDevice,
+    Device,
+    VulkanSurface,
+    Swapchain,
+    Pipeline,
+    DepthBuffers,
+    CommandPools,
+    CommandBuffers,
+    Descriptors,
+    UniformBuffers,
+    VertexBuffer,
+    IndexBuffer,
+    RendererSettings,
+    DeviceRequirements
 );
 
 #[derive(Component, Default)]
@@ -64,7 +76,13 @@ fn create_swapchain(
     surface_provider: Single<&SurfaceProviderResource>,
     mut commands: Commands,
 ) -> Result<(), MockVkError> {
-    let _ = (instance.0, physical_device.0, device.0, surface.0, &*surface_provider);
+    let _ = (
+        instance.0,
+        physical_device.0,
+        device.0,
+        surface.0,
+        &*surface_provider,
+    );
     commands.insert_singleton(Swapchain(1));
     Ok(())
 }
@@ -85,8 +103,13 @@ fn render(
     mut commands: Commands,
 ) -> Result<(), MockVkError> {
     let _ = (
-        instance.0, device.0, swapchain.0, command_buffers.0, depth_buffers.0,
-        pipeline.0, descriptors.0,
+        instance.0,
+        device.0,
+        swapchain.0,
+        command_buffers.0,
+        depth_buffers.0,
+        pipeline.0,
+        descriptors.0,
     );
     let mut mesh_count = 0;
     meshes.for_each(|_| mesh_count += 1);
@@ -134,27 +157,46 @@ fn renderer_shaped_schedules_run() {
     init.add(create_instance).label(INSTANCE);
     init.add(create_swapchain).label(SWAPCHAIN).after(INSTANCE);
     init.run(&mut world);
-    assert!(world.singleton::<VulkanInstance>().is_some(), "deferred insert applied");
-    assert!(world.singleton::<Swapchain>().is_some(), "ordering held: swapchain saw the instance");
+    assert!(
+        world.singleton::<VulkanInstance>().is_some(),
+        "deferred insert applied"
+    );
+    assert!(
+        world.singleton::<Swapchain>().is_some(),
+        "ordering held: swapchain saw the instance"
+    );
 
     let mut main = Schedule::new();
     main.add(render);
     main.run(&mut world);
     main.run(&mut world);
     assert_eq!(world.singleton::<SyncObjects>().unwrap().frames_rendered, 2);
-    assert_eq!(world.singleton::<FrameData>().unwrap().frame_index, 0, "wrapped around");
+    assert_eq!(
+        world.singleton::<FrameData>().unwrap().frame_index,
+        0,
+        "wrapped around"
+    );
 
     let mut shutdown = Schedule::new();
     shutdown.add(wait_device_idle);
     shutdown.add(destroy_swapchain);
     shutdown.run(&mut world);
-    assert!(world.singleton::<Swapchain>().is_none(), "deferred removal applied");
+    assert!(
+        world.singleton::<Swapchain>().is_none(),
+        "deferred removal applied"
+    );
 }
 
 /// The same shape as `render`, with related requests grouped into tuples.
 #[allow(clippy::type_complexity)]
 fn render_grouped(
-    gpu: (Single<&VulkanInstance>, Single<&Device>, Single<&Swapchain>, Single<&Pipeline>, Single<&Descriptors>),
+    gpu: (
+        Single<&VulkanInstance>,
+        Single<&Device>,
+        Single<&Swapchain>,
+        Single<&Pipeline>,
+        Single<&Descriptors>,
+    ),
     targets: (Single<&CommandBuffers>, Single<&DepthBuffers>),
     meshes: Query<&VulkanMesh>,
     frame: (Single<&mut SyncObjects>, Single<&mut FrameData>),
@@ -163,7 +205,15 @@ fn render_grouped(
     let (instance, device, swapchain, pipeline, descriptors) = gpu;
     let (command_buffers, depth_buffers) = targets;
     let (mut sync_objects, mut frame_data) = frame;
-    let _ = (instance.0, device.0, swapchain.0, command_buffers.0, depth_buffers.0, pipeline.0, descriptors.0);
+    let _ = (
+        instance.0,
+        device.0,
+        swapchain.0,
+        command_buffers.0,
+        depth_buffers.0,
+        pipeline.0,
+        descriptors.0,
+    );
     let mut mesh_count = 0;
     meshes.for_each(|_| mesh_count += 1);
     sync_objects.frames_rendered += 1;
@@ -194,7 +244,13 @@ fn render_derived(
     meshes: Query<&VulkanMesh>,
     mut frame: FrameContext,
 ) -> Result<(), MockVkError> {
-    let _ = (gpu.instance.0, gpu.device.0, gpu.swapchain.0, gpu.pipeline.0, gpu.descriptors.0);
+    let _ = (
+        gpu.instance.0,
+        gpu.device.0,
+        gpu.swapchain.0,
+        gpu.pipeline.0,
+        gpu.descriptors.0,
+    );
     let mut mesh_count = 0;
     meshes.for_each(|_| mesh_count += 1);
     frame.sync_objects.frames_rendered += 1;
@@ -220,7 +276,10 @@ fn derived_parameter_structs_behave_like_flat_ones() {
     assert_eq!(world.singleton::<SyncObjects>().unwrap().frames_rendered, 2);
     let mut meshes = flux_ecs::QueryState::<&VulkanMesh>::new();
     let n: usize = world.query(&mut meshes).chunks().map(|m| m.len()).sum();
-    assert_eq!(n, 2, "deferred spawns from the derived Commands field applied");
+    assert_eq!(
+        n, 2,
+        "deferred spawns from the derived Commands field applied"
+    );
 }
 
 #[test]
@@ -304,7 +363,11 @@ fn command_spawn_ids_are_usable_immediately() {
 
     let e = world.singleton::<Probe>().unwrap().0.expect("recorded");
     assert!(world.is_alive(e), "alive once commands applied");
-    assert_eq!(world.get::<Device>(e), Some(&Device(42)), "follow-up command hit the reserved id");
+    assert_eq!(
+        world.get::<Device>(e),
+        Some(&Device(42)),
+        "follow-up command hit the reserved id"
+    );
     assert!(world.get::<VulkanMesh>(e).is_some());
 }
 
@@ -346,7 +409,10 @@ fn a_failed_systems_commands_are_discarded() {
         system.run(&mut world);
     }));
     assert!(panicked.is_err(), "the failure still panics");
-    assert!(world.singleton::<Device>().is_none(), "no effects from the failed run");
+    assert!(
+        world.singleton::<Device>().is_none(),
+        "no effects from the failed run"
+    );
     assert_eq!(world.len(), 0, "no spawns from the failed run");
 
     // the queue is empty: a later successful run applies only its own work

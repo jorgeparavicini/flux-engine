@@ -1,8 +1,8 @@
 use crate::instance::{SurfaceProviderResource, VulkanInstance};
 use ash::khr::surface;
 use ash::vk;
-use flux_ecs::Single;
 use flux_ecs::Commands;
+use flux_ecs::Single;
 use log::info;
 use std::ops::Deref;
 
@@ -10,7 +10,6 @@ use std::ops::Deref;
 pub struct VulkanSurface {
     pub surface: vk::SurfaceKHR,
 }
-
 
 impl Deref for VulkanSurface {
     type Target = vk::SurfaceKHR;

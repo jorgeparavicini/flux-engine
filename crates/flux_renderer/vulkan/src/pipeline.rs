@@ -1,10 +1,10 @@
 use crate::device::Device;
 use crate::swapchain::Swapchain;
 use ash::vk;
-use flux_ecs::Single;
 use flux_ecs::Commands;
-use std::{io, slice};
+use flux_ecs::Single;
 use std::ops::Deref;
+use std::{io, slice};
 // TODO: Error handling is just a placeholder, needs to be improved
 
 #[repr(C)]
@@ -22,7 +22,6 @@ pub struct Pipeline {
     pub descriptor_set_layout: vk::DescriptorSetLayout,
     pub pipeline_layout: vk::PipelineLayout,
 }
-
 
 impl Deref for Pipeline {
     type Target = vk::Pipeline;

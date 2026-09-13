@@ -3,8 +3,8 @@ use crate::image::{create_image, create_image_view};
 use crate::instance::VulkanInstance;
 use crate::swapchain::Swapchain;
 use ash::vk;
-use flux_ecs::Single;
 use flux_ecs::Commands;
+use flux_ecs::Single;
 use log::debug;
 
 #[derive(flux_ecs::Component)]
@@ -14,7 +14,6 @@ pub struct DepthBuffers {
     pub depth_image_memory: vk::DeviceMemory,
     pub depth_format: vk::Format,
 }
-
 
 pub fn create_depth_buffers(
     instance: Single<&VulkanInstance>,

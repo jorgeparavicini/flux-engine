@@ -1,8 +1,8 @@
 use ash::ext::debug_utils;
 use ash::vk::DebugUtilsMessengerEXT;
 use ash::{Instance, vk};
-use flux_ecs::Single;
 use flux_ecs::Commands;
+use flux_ecs::Single;
 use log::{debug, error, info, warn};
 use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 use std::collections::HashSet;
@@ -28,7 +28,6 @@ pub struct SurfaceProviderResource {
     pub provider: Box<dyn SurfaceProvider>,
 }
 
-
 impl Deref for SurfaceProviderResource {
     type Target = Box<dyn SurfaceProvider>;
 
@@ -50,14 +49,12 @@ pub struct RendererSettings {
     pub app_version: AppVersion,
 }
 
-
 #[derive(flux_ecs::Component)]
 pub struct VulkanInstance {
     pub(crate) entry: ash::Entry,
     pub(crate) instance: Instance,
     debug_messenger: Option<DebugUtilsMessengerEXT>,
 }
-
 
 impl Deref for VulkanInstance {
     type Target = Instance;

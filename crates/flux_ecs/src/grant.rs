@@ -28,7 +28,7 @@ impl AccessGrant {
             spent: Vec::new(),
         }
     }
-    
+
     pub fn at_version(allowed: AccessList, version: u64) -> Self {
         Self {
             allowed,
@@ -69,7 +69,7 @@ impl AccessGrant {
         #[cfg(debug_assertions)]
         self.spent.retain(|(c, _)| *c != chunk);
     }
-    
+
     pub fn version(&self) -> u64 {
         self.version
     }
@@ -263,7 +263,7 @@ mod tests {
                 &g,
             )
         }
-            .expect("read is granted");
+        .expect("read is granted");
         assert_eq!(col.len(), 5);
         assert_eq!(col[0], A(0));
         assert_eq!(col[4], A(4));
@@ -325,7 +325,7 @@ mod tests {
                     &mut g,
                 )
             }
-                .expect("write is granted");
+            .expect("write is granted");
             col[2] = A(99);
         }
         #[cfg(debug_assertions)]
@@ -357,7 +357,7 @@ mod tests {
                 &g,
             )
         }
-            .expect("read after release");
+        .expect("read after release");
         assert_eq!(col[2], A(99), "the write landed");
     }
 

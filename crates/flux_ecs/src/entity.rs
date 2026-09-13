@@ -46,7 +46,10 @@ impl Entities {
     pub fn alloc(&mut self) -> Entity {
         if let Some(index) = self.free.pop() {
             let slot = &mut self.slots[index as usize];
-            debug_assert!(slot.generation.get().is_multiple_of(2), "free-list slot must be dead (even)");
+            debug_assert!(
+                slot.generation.get().is_multiple_of(2),
+                "free-list slot must be dead (even)"
+            );
             slot.generation = Self::next_generation(slot.generation);
             return Entity {
                 index,
@@ -70,7 +73,10 @@ impl Entities {
         if let Some(slot) = self.slots.get_mut(entity.index as usize)
             && entity.generation == slot.generation
         {
-            debug_assert!(!slot.generation.get().is_multiple_of(2), "live slot must have odd generation");
+            debug_assert!(
+                !slot.generation.get().is_multiple_of(2),
+                "live slot must have odd generation"
+            );
             slot.generation = Self::next_generation(slot.generation);
             slot.chunk = 0;
             slot.row = 0;
@@ -98,7 +104,7 @@ impl Entities {
             .get_mut(entity.index as usize)
             .filter(|slot| slot.generation == entity.generation)
     }
-    
+
     /// The entities `alloc` would produce next, oldest prediction last
     /// (callers pop from the end), plus the first fresh index past the slots.
     ///
@@ -555,7 +561,11 @@ mod tests {
         assert!(e.is_alive(p));
         assert!(!e.is_alive(victim));
         let recycled = e.alloc();
-        assert_eq!(recycled.index(), victim.index(), "victim's slot still recyclable");
+        assert_eq!(
+            recycled.index(),
+            victim.index(),
+            "victim's slot still recyclable"
+        );
     }
 
     #[test]
@@ -608,7 +618,7 @@ mod tests {
         Dealloc(usize), // index into `log`
     }
 
-    fn op_strategy() -> impl Strategy<Value=Op> {
+    fn op_strategy() -> impl Strategy<Value = Op> {
         prop_oneof![
             3 => Just(Op::Alloc),
             2 => (0usize..64).prop_map(Op::Dealloc),

@@ -3,8 +3,8 @@ use crate::device::Device;
 use crate::pipeline::Pipeline;
 use crate::swapchain::Swapchain;
 use ash::vk;
-use flux_ecs::Single;
 use flux_ecs::Commands;
+use flux_ecs::Single;
 use log::debug;
 
 #[derive(flux_ecs::Component)]
@@ -12,7 +12,6 @@ pub struct Descriptors {
     pub descriptor_pool: vk::DescriptorPool,
     pub descriptor_sets: Vec<vk::DescriptorSet>,
 }
-
 
 pub fn create_descriptors(
     device: Single<&Device>,

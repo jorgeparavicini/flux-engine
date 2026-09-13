@@ -308,8 +308,19 @@ unsafe impl<T: Component> SystemParam for Single<'_, &T> {
         cells: &WorldCells<'w>,
         version: u64,
     ) -> Self::Item<'w, 's> {
-        let columns = unique_row(state, cells, version, Self::ACCESS, std::any::type_name::<T>())
-            .unwrap_or_else(|| panic!("expected exactly one entity with a '{}', found none", std::any::type_name::<T>()));
+        let columns = unique_row(
+            state,
+            cells,
+            version,
+            Self::ACCESS,
+            std::any::type_name::<T>(),
+        )
+        .unwrap_or_else(|| {
+            panic!(
+                "expected exactly one entity with a '{}', found none",
+                std::any::type_name::<T>()
+            )
+        });
         Single { item: &columns[0] }
     }
 }
@@ -339,11 +350,27 @@ unsafe impl<T: Component> SystemParam for Single<'_, &mut T> {
         cells: &WorldCells<'w>,
         version: u64,
     ) -> Self::Item<'w, 's> {
-        let columns = unique_row(state, cells, version, Self::ACCESS, std::any::type_name::<T>())
-            .unwrap_or_else(|| panic!("expected exactly one entity with a '{}', found none", std::any::type_name::<T>()));
+        let columns = unique_row(
+            state,
+            cells,
+            version,
+            Self::ACCESS,
+            std::any::type_name::<T>(),
+        )
+        .unwrap_or_else(|| {
+            panic!(
+                "expected exactly one entity with a '{}', found none",
+                std::any::type_name::<T>()
+            )
+        });
         #[allow(clippy::into_iter_without_iter, clippy::explicit_into_iter_loop)]
-        #[allow(clippy::useless_conversion, reason = "into_iter consumes the slice reference, keeping the world lifetime; iter_mut would reborrow locally")]
-        let row = IntoIterator::into_iter(columns).next().expect("exactly one row");
+        #[allow(
+            clippy::useless_conversion,
+            reason = "into_iter consumes the slice reference, keeping the world lifetime; iter_mut would reborrow locally"
+        )]
+        let row = IntoIterator::into_iter(columns)
+            .next()
+            .expect("exactly one row");
         Single { item: row }
     }
 }
@@ -373,7 +400,13 @@ unsafe impl<'a, T: Component> SystemParam for Option<Single<'a, &T>> {
         cells: &WorldCells<'w>,
         version: u64,
     ) -> Self::Item<'w, 's> {
-        let columns = unique_row(state, cells, version, Self::ACCESS, std::any::type_name::<T>())?;
+        let columns = unique_row(
+            state,
+            cells,
+            version,
+            Self::ACCESS,
+            std::any::type_name::<T>(),
+        )?;
         Some(Single { item: &columns[0] })
     }
 }
@@ -403,14 +436,21 @@ unsafe impl<'a, T: Component> SystemParam for Option<Single<'a, &mut T>> {
         cells: &WorldCells<'w>,
         version: u64,
     ) -> Self::Item<'w, 's> {
-        let columns = unique_row(state, cells, version, Self::ACCESS, std::any::type_name::<T>())?;
-        #[allow(clippy::useless_conversion, reason = "into_iter consumes the slice reference, keeping the world lifetime")]
+        let columns = unique_row(
+            state,
+            cells,
+            version,
+            Self::ACCESS,
+            std::any::type_name::<T>(),
+        )?;
+        #[allow(
+            clippy::useless_conversion,
+            reason = "into_iter consumes the slice reference, keeping the world lifetime"
+        )]
         let row = IntoIterator::into_iter(columns).next().expect("unique row");
         Some(Single { item: row })
     }
 }
-
-
 
 /// Deferred world mutations, applied after the system runs.
 ///
@@ -548,7 +588,9 @@ impl Commands<'_> {
         fn remove<T: Component>(world: &mut World) {
             world.remove_singleton::<T>();
         }
-        self.queue.commands.push(Command::RemoveSingleton { remove: remove::<T> });
+        self.queue.commands.push(Command::RemoveSingleton {
+            remove: remove::<T>,
+        });
     }
 }
 
@@ -642,8 +684,25 @@ tuple_system_param!((P1, s1), (P2, s2), (P3, s3));
 tuple_system_param!((P1, s1), (P2, s2), (P3, s3), (P4, s4));
 tuple_system_param!((P1, s1), (P2, s2), (P3, s3), (P4, s4), (P5, s5));
 tuple_system_param!((P1, s1), (P2, s2), (P3, s3), (P4, s4), (P5, s5), (P6, s6));
-tuple_system_param!((P1, s1), (P2, s2), (P3, s3), (P4, s4), (P5, s5), (P6, s6), (P7, s7));
-tuple_system_param!((P1, s1), (P2, s2), (P3, s3), (P4, s4), (P5, s5), (P6, s6), (P7, s7), (P8, s8));
+tuple_system_param!(
+    (P1, s1),
+    (P2, s2),
+    (P3, s3),
+    (P4, s4),
+    (P5, s5),
+    (P6, s6),
+    (P7, s7)
+);
+tuple_system_param!(
+    (P1, s1),
+    (P2, s2),
+    (P3, s3),
+    (P4, s4),
+    (P5, s5),
+    (P6, s6),
+    (P7, s7),
+    (P8, s8)
+);
 
 #[cfg(test)]
 mod tests {

@@ -2,11 +2,11 @@ use crate::grant::AccessGrant;
 use crate::query::data::QueryData;
 use crate::query::filter::QueryFilter;
 use crate::registry::{ComponentId, KeyMap, Registry};
+use crate::relation::Relation;
 use crate::storage::alloc::ChunkAlloc;
 use crate::storage::archetype::{ArchetypeId, Archetypes};
 use crate::storage::chunks::{ChunkId, Chunks};
 use crate::storage::ops;
-use crate::relation::Relation;
 use crate::{Bundle, ChildOf, Component, Entities, Entity, Query, QueryState};
 use std::collections::HashSet;
 
@@ -194,7 +194,15 @@ impl World {
         let arch_id = self.chunks.archetype(chunk);
         let arch = self.archetypes.get_mut(arch_id);
         let swapped = unsafe {
-            ops::swap_remove_row(arch, &mut self.chunks, &mut self.alloc, &self.registry, chunk, row, true)
+            ops::swap_remove_row(
+                arch,
+                &mut self.chunks,
+                &mut self.alloc,
+                &self.registry,
+                chunk,
+                row,
+                true,
+            )
         };
         self.fix_swapped_slot(swapped, chunk, row);
         self.entities.dealloc(entity)
@@ -327,7 +335,8 @@ impl World {
                             // SAFETY: each entity's W is written by exactly one
                             // thread; parents sit one level up and are only read,
                             // never written, during this level.
-                            let Some(local) = (unsafe { this.component_ptr_of::<L>(entity) }) else {
+                            let Some(local) = (unsafe { this.component_ptr_of::<L>(entity) })
+                            else {
                                 continue;
                             };
                             let local = unsafe { &*local };
@@ -337,7 +346,8 @@ impl World {
                                 let Some(parent) = this.related::<ChildOf>(entity) else {
                                     continue;
                                 };
-                                let Some(pw) = (unsafe { this.component_ptr_of::<W>(parent) }) else {
+                                let Some(pw) = (unsafe { this.component_ptr_of::<W>(parent) })
+                                else {
                                     continue;
                                 };
                                 combine(unsafe { &*pw }, local)
@@ -366,8 +376,15 @@ impl World {
         let arch = self.archetypes.get(self.chunks.archetype(chunk));
         let column = arch.signature().binary_search(&id).ok()?;
         Some(unsafe {
-            ops::component_ptr(&self.chunks, &arch.layout, &self.registry, chunk, column, slot.row)
-                .cast::<T>()
+            ops::component_ptr(
+                &self.chunks,
+                &arch.layout,
+                &self.registry,
+                chunk,
+                column,
+                slot.row,
+            )
+            .cast::<T>()
         })
     }
 
@@ -462,14 +479,28 @@ impl World {
         };
         let (chunk, row) = (ChunkId(slot.chunk), slot.row);
         let src_id = self.chunks.archetype(chunk);
-        if self.archetypes.get(src_id).signature().binary_search(&id).is_ok() {
+        if self
+            .archetypes
+            .get(src_id)
+            .signature()
+            .binary_search(&id)
+            .is_ok()
+        {
             return false;
         }
         let dst_id = self.add_edge_target(src_id, id);
         let (src_arch, dst_arch) = self.archetypes.get_pair_mut(src_id, dst_id);
         let (dst_chunk, dst_row, swapped) = unsafe {
             ops::move_row(
-                src_arch, dst_arch, dst_id, &mut self.chunks, &mut self.alloc, &self.registry, chunk, row, true,
+                src_arch,
+                dst_arch,
+                dst_id,
+                &mut self.chunks,
+                &mut self.alloc,
+                &self.registry,
+                chunk,
+                row,
+                true,
             )
         };
         let slot = self.entities.slot_mut(entity).expect("checked live above");
@@ -489,7 +520,13 @@ impl World {
             return false;
         };
         let arch_id = self.chunks.archetype(ChunkId(slot.chunk));
-        if self.archetypes.get(arch_id).signature().binary_search(&id).is_err() {
+        if self
+            .archetypes
+            .get(arch_id)
+            .signature()
+            .binary_search(&id)
+            .is_err()
+        {
             return false;
         }
         self.fire_on_remove(id, &[entity]);
@@ -502,7 +539,15 @@ impl World {
         let (src_arch, dst_arch) = self.archetypes.get_pair_mut(arch_id, dst_id);
         let (dst_chunk, dst_row, swapped) = unsafe {
             ops::move_row(
-                src_arch, dst_arch, dst_id, &mut self.chunks, &mut self.alloc, &self.registry, chunk, row, false,
+                src_arch,
+                dst_arch,
+                dst_id,
+                &mut self.chunks,
+                &mut self.alloc,
+                &self.registry,
+                chunk,
+                row,
+                false,
             )
         };
         let slot = self.entities.slot_mut(entity).expect("checked live above");
@@ -535,7 +580,10 @@ impl World {
     ///
     /// Returns false if the entity is dead or lacks `T`.
     pub fn set_enabled<T: Component>(&mut self, entity: Entity, value: bool) -> bool {
-        debug_assert!(T::TOGGLEABLE, "set_enabled requires a #[component(toggleable)] type");
+        debug_assert!(
+            T::TOGGLEABLE,
+            "set_enabled requires a #[component(toggleable)] type"
+        );
         let Some((chunk, row, column, arch_id)) = self.locate::<T>(entity) else {
             return false;
         };
@@ -580,7 +628,7 @@ impl World {
                     column,
                     row,
                 )
-                    .cast::<T>(),
+                .cast::<T>(),
             )
         }
     }
@@ -603,7 +651,7 @@ impl World {
                     column,
                     row,
                 )
-                    .cast::<T>(),
+                .cast::<T>(),
             )
         }
     }
@@ -628,8 +676,15 @@ impl World {
         if let Ok(column) = self.archetypes.get(src_id).signature().binary_search(&id) {
             let arch = self.archetypes.get(src_id);
             unsafe {
-                let ptr = ops::component_ptr(&self.chunks, &arch.layout, &self.registry, chunk, column, row)
-                    .cast::<T>();
+                let ptr = ops::component_ptr(
+                    &self.chunks,
+                    &arch.layout,
+                    &self.registry,
+                    chunk,
+                    column,
+                    row,
+                )
+                .cast::<T>();
                 ptr.drop_in_place();
                 ptr.write(value);
             }
@@ -658,9 +713,16 @@ impl World {
             .binary_search(&id)
             .expect("inserted component is in the target signature");
         unsafe {
-            ops::component_ptr(&self.chunks, &dst_arch.layout, &self.registry, dst_chunk, dst_column, dst_row)
-                .cast::<T>()
-                .write(value);
+            ops::component_ptr(
+                &self.chunks,
+                &dst_arch.layout,
+                &self.registry,
+                dst_chunk,
+                dst_column,
+                dst_row,
+            )
+            .cast::<T>()
+            .write(value);
         }
         let slot = self.entities.slot_mut(entity).expect("checked live above");
         slot.chunk = dst_chunk.0;
@@ -688,7 +750,13 @@ impl World {
                 continue; // dead: value dropped
             };
             let src = self.chunks.archetype(ChunkId(slot.chunk));
-            if self.archetypes.get(src).signature().binary_search(&id).is_ok() {
+            if self
+                .archetypes
+                .get(src)
+                .signature()
+                .binary_search(&id)
+                .is_ok()
+            {
                 replaces.push((entity, value));
             } else {
                 groups.entry(src).or_default().push((entity, value));
@@ -775,16 +843,33 @@ impl World {
                 let mut out: Vec<(ChunkId, u16)> = Vec::with_capacity(len);
                 unsafe {
                     ops::move_full_chunk(
-                        &src_arch.layout, dst_arch, dst_id, chunks, alloc, registry, src_chunk, &mut out,
+                        &src_arch.layout,
+                        dst_arch,
+                        dst_id,
+                        chunks,
+                        alloc,
+                        registry,
+                        src_chunk,
+                        &mut out,
                     );
                 }
                 for &(dst_chunk, dst_row) in &out {
-                    let entity = unsafe { ops::entity_at(chunks, &dst_arch.layout, dst_chunk, dst_row) };
-                    let value = values[entity.index() as usize].take().expect("entity is in the batch");
+                    let entity =
+                        unsafe { ops::entity_at(chunks, &dst_arch.layout, dst_chunk, dst_row) };
+                    let value = values[entity.index() as usize]
+                        .take()
+                        .expect("entity is in the batch");
                     unsafe {
-                        ops::component_ptr(chunks, &dst_arch.layout, registry, dst_chunk, dst_column, dst_row)
-                            .cast::<T>()
-                            .write(value);
+                        ops::component_ptr(
+                            chunks,
+                            &dst_arch.layout,
+                            registry,
+                            dst_chunk,
+                            dst_column,
+                            dst_row,
+                        )
+                        .cast::<T>()
+                        .write(value);
                     }
                     let slot = entities.slot_mut(entity).expect("checked live");
                     slot.chunk = dst_chunk.0;
@@ -827,9 +912,16 @@ impl World {
         let (chunk, row, column, arch_id) = located;
         let arch = self.archetypes.get(arch_id);
         let value = unsafe {
-            ops::component_ptr(&self.chunks, &arch.layout, &self.registry, chunk, column, row)
-                .cast::<T>()
-                .read()
+            ops::component_ptr(
+                &self.chunks,
+                &arch.layout,
+                &self.registry,
+                chunk,
+                column,
+                row,
+            )
+            .cast::<T>()
+            .read()
         };
         let dst_id = self.remove_edge_target(arch_id, id);
         let (src_arch, dst_arch) = self.archetypes.get_pair_mut(arch_id, dst_id);
@@ -981,7 +1073,12 @@ impl World {
         &'w mut self,
         state: &'s mut QueryState<D, F>,
     ) -> Query<'w, 's, D, F> {
-        const { assert!(!D::ACCESS.self_conflicting(), "query aliases a component mutably") }
+        const {
+            assert!(
+                !D::ACCESS.self_conflicting(),
+                "query aliases a component mutably"
+            )
+        }
         self.version += 1;
         let last_seen = state.advance_cursor(self.version);
         state.refresh(&self.archetypes, &self.registry);
@@ -1079,7 +1176,14 @@ impl Drop for World {
                     if let Some(drop_fn) = self.registry.info(*component_id).drop_fn {
                         unsafe {
                             drop_fn(
-                                ops::component_ptr(&self.chunks, &arch.layout, &self.registry, chunk, column, 0),
+                                ops::component_ptr(
+                                    &self.chunks,
+                                    &arch.layout,
+                                    &self.registry,
+                                    chunk,
+                                    column,
+                                    0,
+                                ),
                                 rows,
                             );
                         }
@@ -1524,7 +1628,10 @@ mod tests {
         world.disable::<Toggle>(e);
         // Growing the signature relocates the entity to a new archetype.
         world.insert(e, B(2));
-        assert!(!world.is_enabled::<Toggle>(e), "still disabled after the move");
+        assert!(
+            !world.is_enabled::<Toggle>(e),
+            "still disabled after the move"
+        );
     }
 
     #[test]
@@ -1646,7 +1753,11 @@ mod tests {
         world.insert_batch(batch);
 
         let added = ADDED.with(|l| l.borrow().clone());
-        assert_eq!(added.len(), 1, "one slice for the whole batch, not one per entity");
+        assert_eq!(
+            added.len(),
+            1,
+            "one slice for the whole batch, not one per entity"
+        );
         let mut got = added[0].clone();
         got.sort_by_key(Entity::index);
         let mut want = entities.clone();
@@ -1687,7 +1798,10 @@ mod tests {
 
         assert!(world.unrelate::<ChildOf>(child));
         assert_eq!(world.related::<ChildOf>(child), None);
-        assert!(!world.unrelate::<ChildOf>(child), "second unrelate is a no-op");
+        assert!(
+            !world.unrelate::<ChildOf>(child),
+            "second unrelate is a no-op"
+        );
     }
 
     #[test]
@@ -1698,7 +1812,11 @@ mod tests {
         let child = world.spawn((A(3),));
         world.relate::<ChildOf>(child, a);
         world.relate::<ChildOf>(child, b);
-        assert_eq!(world.related::<ChildOf>(child), Some(b), "one ChildOf per entity");
+        assert_eq!(
+            world.related::<ChildOf>(child),
+            Some(b),
+            "one ChildOf per entity"
+        );
     }
 
     #[test]
@@ -1736,9 +1854,15 @@ mod tests {
         let a = world.spawn((A(1),));
         let b = world.spawn((A(2),));
         world.relate::<ChildOf>(a, b);
-        assert!(!world.relate::<ChildOf>(b, a), "b under a would close a loop");
+        assert!(
+            !world.relate::<ChildOf>(b, a),
+            "b under a would close a loop"
+        );
         assert_eq!(world.related::<ChildOf>(b), None);
-        assert!(!world.relate::<ChildOf>(a, a), "an entity cannot be its own parent");
+        assert!(
+            !world.relate::<ChildOf>(a, a),
+            "an entity cannot be its own parent"
+        );
     }
 
     #[test]
@@ -1805,7 +1929,10 @@ mod tests {
 
         let mut expected = vec![(c1, p1), (c2, p1), (c3, p2)];
         expected.sort();
-        assert_eq!(pairs, expected, "only children match, each paired with its parent");
+        assert_eq!(
+            pairs, expected,
+            "only children match, each paired with its parent"
+        );
     }
 
     #[test]
@@ -1823,7 +1950,11 @@ mod tests {
         let mut state = QueryState::<(Entity, Related<ChildOf>)>::new();
         assert_eq!(count(&mut world, &mut state), 0);
         world.relate::<ChildOf>(child, parent);
-        assert_eq!(count(&mut world, &mut state), 1, "new archetype picked up by the same state");
+        assert_eq!(
+            count(&mut world, &mut state),
+            1,
+            "new archetype picked up by the same state"
+        );
         world.unrelate::<ChildOf>(child);
         assert_eq!(count(&mut world, &mut state), 0);
     }
@@ -1854,7 +1985,9 @@ mod tests {
 
         let mut state = QueryState::<(&A, Related<ChildOf>)>::new();
         let mut seen: Vec<(u64, Entity)> = Vec::new();
-        world.query(&mut state).for_each(|(a, p)| seen.push((a.0, p)));
+        world
+            .query(&mut state)
+            .for_each(|(a, p)| seen.push((a.0, p)));
         assert_eq!(seen, vec![(99, parent)]);
     }
 

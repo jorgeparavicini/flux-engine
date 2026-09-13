@@ -38,14 +38,18 @@ fn scaling(c: &mut Criterion) {
 
     c.bench_function("parallel/serial_for_each_1M", |b| {
         b.iter(|| {
-            world.query(&mut serial_state).for_each(|(p, v)| integrate(p, v));
+            world
+                .query(&mut serial_state)
+                .for_each(|(p, v)| integrate(p, v));
             black_box(&world);
         });
     });
 
     c.bench_function("parallel/par_for_each_1M", |b| {
         b.iter(|| {
-            world.query(&mut par_state).par_for_each(|(p, v)| integrate(p, v));
+            world
+                .query(&mut par_state)
+                .par_for_each(|(p, v)| integrate(p, v));
             black_box(&world);
         });
     });

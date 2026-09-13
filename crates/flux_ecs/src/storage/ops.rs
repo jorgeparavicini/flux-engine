@@ -348,9 +348,7 @@ pub(crate) unsafe fn entity_column<'w>(
     chunk: ChunkId,
 ) -> &'w [Entity] {
     let len = chunks.len(chunk) as usize;
-    unsafe {
-        std::slice::from_raw_parts(entity_slot_ptr(chunks, layout, chunk, 0), len)
-    }
+    unsafe { std::slice::from_raw_parts(entity_slot_ptr(chunks, layout, chunk, 0), len) }
 }
 
 /// Bulk-moves every row of `src_chunk` into `dst_arch`, appending them and
@@ -403,8 +401,16 @@ pub(crate) unsafe fn move_full_chunk(
                 if src_layout.offsets[i] != NO_COLUMN {
                     let size = reg.info(src_sig[i]).size;
                     unsafe {
-                        let src = component_ptr(chunks, src_layout, reg, src_chunk, i, moved as u16);
-                        let dst = component_ptr(chunks, &dst_arch.layout, reg, dst_chunk, j, dst_start as u16);
+                        let src =
+                            component_ptr(chunks, src_layout, reg, src_chunk, i, moved as u16);
+                        let dst = component_ptr(
+                            chunks,
+                            &dst_arch.layout,
+                            reg,
+                            dst_chunk,
+                            j,
+                            dst_start as u16,
+                        );
                         std::ptr::copy_nonoverlapping(src, dst, size * run);
                     }
                 }
@@ -859,7 +865,7 @@ mod tests {
         let payload = unsafe {
             (*component_ptr(&bench.chunks, &arch.layout, &bench.reg, chunk, col, 0)
                 .cast::<DropCounter>())
-                .1
+            .1
         };
         assert_eq!(payload, 1, "tail payload moved into the hole");
 
@@ -1185,8 +1191,8 @@ mod tests {
                 Bench::col(&dst, bench.drop),
                 dst_row,
             )
-                .cast::<DropCounter>())
-                .1
+            .cast::<DropCounter>())
+            .1
         };
         assert_eq!(payload, 9, "payload intact after the move");
 
@@ -1241,8 +1247,8 @@ mod tests {
                 Bench::col(&src, bench.drop),
                 src_row,
             )
-                .cast::<DropCounter>()
-                .read()
+            .cast::<DropCounter>()
+            .read()
         };
         let (dst_chunk, dst_row, _) = unsafe {
             move_row(

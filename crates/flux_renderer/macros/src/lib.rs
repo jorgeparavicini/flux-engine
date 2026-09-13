@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use syn::__private::quote;
-use syn::{parse_macro_input, ItemStruct};
+use syn::{ItemStruct, parse_macro_input};
 
 #[proc_macro_derive(Vertex)]
 pub fn derive_vertex(input: TokenStream) -> TokenStream {

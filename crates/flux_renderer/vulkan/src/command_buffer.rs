@@ -2,8 +2,8 @@ use crate::command_pool::CommandPools;
 use crate::device::Device;
 use crate::swapchain::Swapchain;
 use ash::vk;
-use flux_ecs::Single;
 use flux_ecs::Commands;
+use flux_ecs::Single;
 use log::debug;
 use std::ops::Deref;
 
@@ -19,7 +19,6 @@ impl Deref for CommandBuffers {
         &self.command_buffers
     }
 }
-
 
 pub fn create_command_buffer(
     device: Single<&Device>,

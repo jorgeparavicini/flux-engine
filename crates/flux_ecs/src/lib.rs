@@ -26,30 +26,30 @@
 
 mod access;
 mod bundle;
+mod component;
 mod entity;
 mod event;
 mod grant;
 mod query;
+#[cfg(any(test, feature = "reference"))]
+pub mod reference;
 mod registry;
 mod relation;
 mod schedule;
 mod storage;
 mod system;
 mod world;
-mod component;
-#[cfg(any(test, feature = "reference"))]
-pub mod reference;
 
-pub use component::{Component, ComponentKey, StorageClass, ThreadSafeComponent};
+pub use access::AccessList;
 pub use bundle::Bundle;
+pub use component::{Component, ComponentKey, StorageClass, ThreadSafeComponent};
 pub use entity::{Entities, Entity};
 pub use event::{EventReader, EventWriter};
+pub use flux_ecs_macros::Component;
+pub use flux_ecs_macros::SystemParam;
+pub use query::{Added, Changed, Query, QueryFilter, QueryState, Related, With, Without};
 pub use registry::ComponentId;
 pub use relation::{ChildOf, Relation};
 pub use schedule::{Schedule, SystemLabel};
-pub use access::AccessList;
 pub use system::{Commands, IntoSystem, Local, Single, System, SystemParam, WorldCells};
 pub use world::World;
-pub use query::{Added, Changed, Query, QueryFilter, QueryState, Related, With, Without};
-pub use flux_ecs_macros::Component;
-pub use flux_ecs_macros::SystemParam;

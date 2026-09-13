@@ -1,10 +1,10 @@
 use crate::access::AccessList;
 use crate::grant::AccessGrant;
 use crate::registry::Registry;
+use crate::relation::Relation;
 use crate::storage::chunks::{ChunkId, Chunks};
 use crate::storage::layout::ArchetypeLayout;
 use crate::storage::ops;
-use crate::relation::Relation;
 use crate::{Component, ComponentId, ComponentKey, Entity};
 use std::marker::PhantomData;
 

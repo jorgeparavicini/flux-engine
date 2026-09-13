@@ -45,16 +45,20 @@ fn fragmentation(c: &mut Criterion) {
         }
         let mut state = QueryState::<(&mut Position, &Velocity)>::new();
         let dt = 1.0 / 60.0_f32;
-        group.bench_with_input(BenchmarkId::from_parameter(archetypes), &archetypes, |b, _| {
-            b.iter(|| {
-                for (pos, vel) in world.query(&mut state).chunks() {
-                    for (p, v) in pos.iter_mut().zip(vel.iter()) {
-                        p.0 += v.0 * dt;
+        group.bench_with_input(
+            BenchmarkId::from_parameter(archetypes),
+            &archetypes,
+            |b, _| {
+                b.iter(|| {
+                    for (pos, vel) in world.query(&mut state).chunks() {
+                        for (p, v) in pos.iter_mut().zip(vel.iter()) {
+                            p.0 += v.0 * dt;
+                        }
                     }
-                }
-                black_box(&world);
-            });
-        });
+                    black_box(&world);
+                });
+            },
+        );
     }
     group.finish();
 }

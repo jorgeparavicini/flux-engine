@@ -4,7 +4,6 @@ use std::ptr::NonNull;
 pub const CHUNK_SIZE: usize = 64 * 1024;
 pub const CHUNK_ALIGN: usize = 64;
 
-
 #[derive(Default)]
 /// Pool of uniform chunk-sized memory blocks with free-list reuse.
 ///
@@ -68,7 +67,11 @@ impl ChunkAlloc {
 
 impl Drop for ChunkAlloc {
     fn drop(&mut self) {
-        debug_assert!(std::thread::panicking() || self.live == 0, "ChunkAlloc dropped with {} live chunks", self.live);
+        debug_assert!(
+            std::thread::panicking() || self.live == 0,
+            "ChunkAlloc dropped with {} live chunks",
+            self.live
+        );
 
         for chunk in self.free.drain(..) {
             unsafe {
@@ -97,7 +100,11 @@ mod tests {
     fn blocks_are_aligned_and_writable_end_to_end() {
         let mut a = ChunkAlloc::default();
         let p = a.alloc();
-        assert_eq!(p.as_ptr() as usize % 64, 0, "64-byte aligned (literal: not derived from the constant under test)");
+        assert_eq!(
+            p.as_ptr() as usize % 64,
+            0,
+            "64-byte aligned (literal: not derived from the constant under test)"
+        );
         // Write and read back every byte; under miri this proves the block
         // really is CHUNK_SIZE bytes with valid provenance.
         unsafe {
@@ -146,7 +153,11 @@ mod tests {
         assert_eq!((a.live(), a.peak()), (1, 3), "peak is a high-water mark");
         let p4 = a.alloc();
         let p5 = a.alloc();
-        assert_eq!((a.live(), a.peak()), (3, 3), "recycling does not move the peak");
+        assert_eq!(
+            (a.live(), a.peak()),
+            (3, 3),
+            "recycling does not move the peak"
+        );
         let p6 = a.alloc();
         assert_eq!((a.live(), a.peak()), (4, 4), "new high-water mark");
         unsafe {
@@ -167,7 +178,11 @@ mod tests {
         let addr = p.as_ptr() as usize;
         unsafe { a.dealloc(p) };
         let q = a.alloc();
-        assert_eq!(q.as_ptr() as usize, addr, "free list is used before the system allocator");
+        assert_eq!(
+            q.as_ptr() as usize,
+            addr,
+            "free list is used before the system allocator"
+        );
         unsafe { a.dealloc(q) };
     }
 
@@ -180,7 +195,11 @@ mod tests {
             seen.insert(p.as_ptr() as usize);
             unsafe { a.dealloc(p) };
         }
-        assert_eq!(seen.len(), 1, "alloc/dealloc churn must not touch the system allocator");
+        assert_eq!(
+            seen.len(),
+            1,
+            "alloc/dealloc churn must not touch the system allocator"
+        );
         assert_eq!((a.live(), a.peak()), (0, 1));
     }
 
@@ -204,7 +223,8 @@ mod tests {
             } else {
                 let p = a.alloc();
                 assert!(
-                    addresses.insert(p.as_ptr() as usize) || !held.iter().any(|h| h.as_ptr() == p.as_ptr()),
+                    addresses.insert(p.as_ptr() as usize)
+                        || !held.iter().any(|h| h.as_ptr() == p.as_ptr()),
                     "allocator handed out a block that is still held"
                 );
                 held.push(p);
@@ -257,7 +277,10 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "double")]
-    #[cfg_attr(miri, ignore = "leaks on unwind by design; covered in debug builds without miri")]
+    #[cfg_attr(
+        miri,
+        ignore = "leaks on unwind by design; covered in debug builds without miri"
+    )]
     #[cfg(debug_assertions)]
     fn double_dealloc_panics_in_debug() {
         let mut a = ChunkAlloc::default();

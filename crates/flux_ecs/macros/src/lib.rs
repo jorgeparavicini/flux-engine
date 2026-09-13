@@ -105,7 +105,12 @@ pub fn derive_system_param(input: TokenStream) -> TokenStream {
             }
         }
     }
-    let allowed = [vec![], vec!["w".to_string()], vec!["s".to_string()], vec!["w".to_string(), "s".to_string()]];
+    let allowed = [
+        vec![],
+        vec!["w".to_string()],
+        vec!["s".to_string()],
+        vec!["w".to_string(), "s".to_string()],
+    ];
     if !allowed.contains(&lifetimes) {
         return syn::Error::new_spanned(
             &input.generics,
@@ -135,7 +140,11 @@ pub fn derive_system_param(input: TokenStream) -> TokenStream {
         }
     }
 
-    let field_names: Vec<_> = fields.named.iter().map(|f| f.ident.clone().unwrap()).collect();
+    let field_names: Vec<_> = fields
+        .named
+        .iter()
+        .map(|f| f.ident.clone().unwrap())
+        .collect();
     let erased: Vec<syn::Type> = fields
         .named
         .iter()
@@ -148,10 +157,12 @@ pub fn derive_system_param(input: TokenStream) -> TokenStream {
 
     // Self, lifetime-erased, for the impl header; Item substitutes fresh ones.
     let erased_self_args = lifetimes.iter().map(|_| quote!('_));
-    let item_args = lifetimes.iter().map(|l| {
-        if l == "w" { quote!('w2) } else { quote!('s2) }
-    });
-    let state_indices = (0..field_names.len()).map(syn::Index::from).collect::<Vec<_>>();
+    let item_args = lifetimes
+        .iter()
+        .map(|l| if l == "w" { quote!('w2) } else { quote!('s2) });
+    let state_indices = (0..field_names.len())
+        .map(syn::Index::from)
+        .collect::<Vec<_>>();
 
     quote! {
         unsafe impl ::flux_ecs::SystemParam for #name<#(#erased_self_args),*> {

@@ -140,7 +140,11 @@ impl Registry {
     }
 
     /// The id of the `(relation, target)` pair, if it has been registered.
-    pub(crate) fn lookup_pair(&self, relation: ComponentKey, target: Entity) -> Option<ComponentId> {
+    pub(crate) fn lookup_pair(
+        &self,
+        relation: ComponentKey,
+        target: Entity,
+    ) -> Option<ComponentId> {
         self.by_pair.get(&(relation, target)).copied()
     }
 

@@ -83,7 +83,11 @@ impl ArchetypeLayout {
             if info.size == 0 {
                 continue;
             }
-            columns.push(Column { index, size: info.size, align: info.align });
+            columns.push(Column {
+                index,
+                size: info.size,
+                align: info.align,
+            });
             stride += info.size;
         }
 
@@ -228,7 +232,11 @@ mod tests {
             size_of::<Entity>() * cap,
             align_of::<Entity>(),
         )];
-        assert_eq!(layout.components.len(), layout.offsets.len(), "parallel arrays");
+        assert_eq!(
+            layout.components.len(),
+            layout.offsets.len(),
+            "parallel arrays"
+        );
         for (id, &off) in layout.components.iter().zip(layout.offsets.iter()) {
             let info = r.info(*id);
             if info.size == 0 {
@@ -239,8 +247,15 @@ mod tests {
             spans.push((off as usize, info.size * cap, info.align));
         }
         for &(off, extent, align) in &spans {
-            assert_eq!(off % align, 0, "column at {off} misaligned for align {align}");
-            assert!(off + extent <= CHUNK_SIZE, "column at {off} overruns the chunk");
+            assert_eq!(
+                off % align,
+                0,
+                "column at {off} misaligned for align {align}"
+            );
+            assert!(
+                off + extent <= CHUNK_SIZE,
+                "column at {off} overruns the chunk"
+            );
         }
         spans.sort();
         for pair in spans.windows(2) {
@@ -294,7 +309,18 @@ mod tests {
     #[test]
     fn mixed_alignment_archetype_is_valid_and_tight() {
         let mut r = registry();
-        let sig = ids(&mut r, &[B1::KEY, B2::KEY, B4::KEY, B8::KEY, B12::KEY, A16::KEY, A64::KEY]);
+        let sig = ids(
+            &mut r,
+            &[
+                B1::KEY,
+                B2::KEY,
+                B4::KEY,
+                B8::KEY,
+                B12::KEY,
+                A16::KEY,
+                A64::KEY,
+            ],
+        );
         let layout = ArchetypeLayout::new(&sig, &r).unwrap();
         assert_valid(&layout, &r);
         // stride = 8+1+2+4+8+12+16+64 = 115; loose lower bound allows for
@@ -310,10 +336,14 @@ mod tests {
     #[test]
     fn zsts_occupy_no_space_and_do_not_reduce_capacity() {
         let mut r = registry();
-        let with = ArchetypeLayout::new(&ids(&mut r, &[B4::KEY, Zst::KEY, Tagged::KEY]), &r).unwrap();
+        let with =
+            ArchetypeLayout::new(&ids(&mut r, &[B4::KEY, Zst::KEY, Tagged::KEY]), &r).unwrap();
         let without = ArchetypeLayout::new(&ids(&mut r, &[B4::KEY]), &r).unwrap();
         assert_valid(&with, &r);
-        assert_eq!(with.capacity, without.capacity, "ZSTs must not cost capacity");
+        assert_eq!(
+            with.capacity, without.capacity,
+            "ZSTs must not cost capacity"
+        );
         assert_eq!(with.components.len(), 3, "ZSTs stay in the signature");
     }
 

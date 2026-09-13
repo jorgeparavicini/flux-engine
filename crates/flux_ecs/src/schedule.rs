@@ -52,7 +52,10 @@ impl Schedule {
     }
 
     /// Adds a system; the returned configuration orders and conditions it.
-    pub fn add<M>(&mut self, system: impl IntoSystem<M, System: Send + 'static>) -> SystemConfig<'_> {
+    pub fn add<M>(
+        &mut self,
+        system: impl IntoSystem<M, System: Send + 'static>,
+    ) -> SystemConfig<'_> {
         self.order = None;
         self.entries.push(Entry {
             system: Box::new(system.into_system()),
@@ -109,7 +112,8 @@ impl Schedule {
         while remaining > 0 {
             // Refresh refined access against the current world (which reflects
             // earlier waves' committed commands) for every not-yet-run system.
-            let mut refined: Vec<Option<RefinedAccess>> = (0..self.entries.len()).map(|_| None).collect();
+            let mut refined: Vec<Option<RefinedAccess>> =
+                (0..self.entries.len()).map(|_| None).collect();
             for &index in &order {
                 if !done[index] {
                     refined[index] = Some(self.entries[index].system.refined_access(world));
@@ -173,8 +177,14 @@ impl Schedule {
     /// Whether every ordering predecessor of `index` has already run.
     fn predecessors_done(&self, index: usize, done: &[bool]) -> bool {
         for (other, entry) in self.entries.iter().enumerate() {
-            let before = entry.before.iter().any(|l| self.entries[index].label == Some(*l));
-            let after = self.entries[index].after.iter().any(|l| entry.label == Some(*l));
+            let before = entry
+                .before
+                .iter()
+                .any(|l| self.entries[index].label == Some(*l));
+            let after = self.entries[index]
+                .after
+                .iter()
+                .any(|l| entry.label == Some(*l));
             if (before || after) && !done[other] {
                 return false;
             }
@@ -214,7 +224,8 @@ impl Schedule {
             }
         }
 
-        let mut read: BinaryHeap<Reverse<usize>> = (0..n).filter(|i| indegree[*i] == 0).map(Reverse).collect();
+        let mut read: BinaryHeap<Reverse<usize>> =
+            (0..n).filter(|i| indegree[*i] == 0).map(Reverse).collect();
         let mut order = Vec::with_capacity(n);
 
         while let Some(Reverse(index)) = read.pop() {
@@ -242,7 +253,10 @@ impl Schedule {
     /// Indices of every system labelled `label`; panics if there are none.
     fn labelled(&self, label: SystemLabel) -> Vec<usize> {
         let targets: Vec<usize> = self
-            .entries.iter().enumerate().filter(|(_, entry)| entry.label == Some(label))
+            .entries
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| entry.label == Some(label))
             .map(|(index, _)| index)
             .collect();
         assert!(
@@ -284,7 +298,11 @@ impl Schedule {
                     let key = a
                         .terms()
                         .iter()
-                        .find(|t| b.terms().iter().any(|o| o.key == t.key && (o.write && t.write)))
+                        .find(|t| {
+                            b.terms()
+                                .iter()
+                                .any(|o| o.key == t.key && (o.write && t.write))
+                        })
                         .map(|t| t.key)
                         .expect("conflict implies a contested key");
 
@@ -689,16 +707,26 @@ mod tests {
     #[test]
     fn overlapping_writers_of_the_same_component_still_serialize() {
         // Both write N over the SAME archetype {N}: they must not share a wave.
-        fn a(q: Query<&mut N>) { q.for_each(|n| n.0 += 1); }
-        fn b(q: Query<&mut N>) { q.for_each(|n| n.0 += 1); }
+        fn a(q: Query<&mut N>) {
+            q.for_each(|n| n.0 += 1);
+        }
+        fn b(q: Query<&mut N>) {
+            q.for_each(|n| n.0 += 1);
+        }
         let mut w = World::new();
-        for _ in 0..10 { w.spawn((N(0),)); }
+        for _ in 0..10 {
+            w.spawn((N(0),));
+        }
         let mut s = Schedule::new();
         s.add(a);
         s.add(b);
         s.run_parallel(&mut w);
         let mut st = QueryState::<&N>::new();
-        let total: u64 = w.query(&mut st).chunks().map(|c| c.iter().map(|n| n.0).sum::<u64>()).sum();
+        let total: u64 = w
+            .query(&mut st)
+            .chunks()
+            .map(|c| c.iter().map(|n| n.0).sum::<u64>())
+            .sum();
         assert_eq!(total, 20, "both ran; no lost update from a race");
     }
 
@@ -721,7 +749,10 @@ mod tests {
             .run_if(|w: &World| w.singleton::<Flag>().unwrap().0);
         let mut w = parallel_world();
         schedule.run_parallel(&mut w);
-        assert!(trace(&w).is_empty(), "false condition skips in parallel too");
+        assert!(
+            trace(&w).is_empty(),
+            "false condition skips in parallel too"
+        );
         w.singleton_mut::<Flag>().unwrap().0 = true;
         schedule.run_parallel(&mut w);
         assert_eq!(trace(&w), vec!["gated"]);
@@ -743,8 +774,12 @@ mod tests {
             h
         }
         let build = || {
-            fn w0(q: Query<&mut N>) { q.for_each(|n| n.0 = n.0.wrapping_add(1)); }
-            fn w1(q: Query<&mut M>) { q.for_each(|m| m.0 = m.0.wrapping_add(3)); }
+            fn w0(q: Query<&mut N>) {
+                q.for_each(|n| n.0 = n.0.wrapping_add(1));
+            }
+            fn w1(q: Query<&mut M>) {
+                q.for_each(|m| m.0 = m.0.wrapping_add(3));
+            }
             let mut w = World::new();
             for i in 0..500 {
                 w.spawn((N(i), M(i)));

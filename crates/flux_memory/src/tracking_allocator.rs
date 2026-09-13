@@ -1,4 +1,4 @@
-use crate::region::{get_current_region, Region};
+use crate::region::{Region, get_current_region};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::mem;
 use std::sync::atomic::{AtomicUsize, Ordering};

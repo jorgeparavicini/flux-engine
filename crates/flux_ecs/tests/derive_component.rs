@@ -72,15 +72,30 @@ mod elsewhere {
 #[test]
 fn key_is_fnv_of_module_path_colon_colon_type_name() {
     // Pins the exact path format: `concat!(module_path!(), "::", stringify!(Name))`.
-    assert_eq!(Position::KEY, ComponentKey::from_path("derive_component::Position"));
-    assert_eq!(Velocity::KEY, ComponentKey::from_path("derive_component::Velocity"));
-    assert_eq!(Marker::KEY, ComponentKey::from_path("derive_component::Marker"));
-    assert_eq!(Phase::KEY, ComponentKey::from_path("derive_component::Phase"));
+    assert_eq!(
+        Position::KEY,
+        ComponentKey::from_path("derive_component::Position")
+    );
+    assert_eq!(
+        Velocity::KEY,
+        ComponentKey::from_path("derive_component::Velocity")
+    );
+    assert_eq!(
+        Marker::KEY,
+        ComponentKey::from_path("derive_component::Marker")
+    );
+    assert_eq!(
+        Phase::KEY,
+        ComponentKey::from_path("derive_component::Phase")
+    );
 }
 
 #[test]
 fn module_path_is_part_of_the_key() {
-    assert_eq!(inner::Position::KEY, ComponentKey::from_path("derive_component::inner::Position"));
+    assert_eq!(
+        inner::Position::KEY,
+        ComponentKey::from_path("derive_component::inner::Position")
+    );
     assert_eq!(
         inner::deeper::Position::KEY,
         ComponentKey::from_path("derive_component::inner::deeper::Position")
@@ -129,7 +144,10 @@ fn key_is_a_true_const() {
 // ------------------------------------------------------------------ defaults
 
 #[test]
-#[allow(clippy::assertions_on_constants, reason = "deliberately checks compile-time constants")]
+#[allow(
+    clippy::assertions_on_constants,
+    reason = "deliberately checks compile-time constants"
+)]
 fn derived_components_get_the_documented_defaults() {
     assert_eq!(Position::STORAGE, StorageClass::Chunked);
     assert!(!Position::NON_SEND);
@@ -141,7 +159,10 @@ fn derived_components_get_the_documented_defaults() {
 // ------------------------------------------------------------------ non_send
 
 #[test]
-#[allow(clippy::assertions_on_constants, reason = "deliberately checks compile-time constants")]
+#[allow(
+    clippy::assertions_on_constants,
+    reason = "deliberately checks compile-time constants"
+)]
 fn non_send_attribute_sets_the_flag() {
     assert!(VulkanHandle::NON_SEND);
     assert!(PinnedAnyway::NON_SEND);
@@ -150,7 +171,10 @@ fn non_send_attribute_sets_the_flag() {
 #[test]
 fn non_send_does_not_change_other_defaults() {
     assert_eq!(VulkanHandle::STORAGE, StorageClass::Chunked);
-    assert_eq!(VulkanHandle::KEY, ComponentKey::from_path("derive_component::VulkanHandle"));
+    assert_eq!(
+        VulkanHandle::KEY,
+        ComponentKey::from_path("derive_component::VulkanHandle")
+    );
 }
 
 #[test]

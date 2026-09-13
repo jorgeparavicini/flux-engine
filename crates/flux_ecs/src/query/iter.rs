@@ -32,8 +32,10 @@ impl<'w, 's, D: QueryData, F: QueryFilter> Query<'w, 's, D, F> {
         for<'a> D::Columns<'a>: Send,
     {
         // Gather the (archetype, chunk) work items.
-        let mut work: Vec<(crate::storage::archetype::ArchetypeId, crate::storage::chunks::ChunkId)> =
-            Vec::new();
+        let mut work: Vec<(
+            crate::storage::archetype::ArchetypeId,
+            crate::storage::chunks::ChunkId,
+        )> = Vec::new();
         for &arch_id in self.state.matched() {
             for &chunk in &self.archetypes.get(arch_id).chunks {
                 work.push((arch_id, chunk));
@@ -245,7 +247,9 @@ mod tests {
     #[test]
     fn for_each_mutations_land() {
         let mut world = World::new();
-        let entities: Vec<_> = (0..5u64).map(|i| world.spawn((A(i), B(i as u16)))).collect();
+        let entities: Vec<_> = (0..5u64)
+            .map(|i| world.spawn((A(i), B(i as u16))))
+            .collect();
         let mut writer = QueryState::<(&mut A, &B)>::new();
         world.query(&mut writer).for_each(|(a, b)| {
             a.0 += 100 * u64::from(b.0);
@@ -333,7 +337,9 @@ mod tests {
         let mut world = World::new();
         world.spawn((B(0),));
         let mut st = QueryState::<&A>::new();
-        world.query(&mut st).par_for_each(|_| unreachable!("no A rows"));
+        world
+            .query(&mut st)
+            .par_for_each(|_| unreachable!("no A rows"));
     }
 
     #[test]
@@ -341,6 +347,8 @@ mod tests {
         let mut world = World::new();
         world.spawn((B(1),));
         let mut state = QueryState::<&A>::new();
-        world.query(&mut state).for_each(|_| unreachable!("no A rows exist"));
+        world
+            .query(&mut state)
+            .for_each(|_| unreachable!("no A rows exist"));
     }
 }

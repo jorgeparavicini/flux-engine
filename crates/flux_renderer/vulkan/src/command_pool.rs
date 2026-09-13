@@ -1,8 +1,8 @@
-use ash::vk;
-use log::debug;
-use flux_ecs::Single;
-use flux_ecs::Commands;
 use crate::device::Device;
+use ash::vk;
+use flux_ecs::Commands;
+use flux_ecs::Single;
+use log::debug;
 
 #[derive(flux_ecs::Component)]
 pub struct CommandPools {
@@ -10,24 +10,21 @@ pub struct CommandPools {
     pub transfer: vk::CommandPool,
 }
 
-
-pub fn create_command_pools(device: Single<&Device>, mut commands: Commands) -> Result<(), vk::Result> {
+pub fn create_command_pools(
+    device: Single<&Device>,
+    mut commands: Commands,
+) -> Result<(), vk::Result> {
     debug!("Creating command pools");
 
     let info = vk::CommandPoolCreateInfo::default()
         .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
         .queue_family_index(device.graphics_queue_index);
 
-    let graphics_pool = unsafe {
-        device.create_command_pool(&info, None)?
-    };
+    let graphics_pool = unsafe { device.create_command_pool(&info, None)? };
 
-    let info = vk::CommandPoolCreateInfo::default()
-        .queue_family_index(device.transfer_queue_index);
+    let info = vk::CommandPoolCreateInfo::default().queue_family_index(device.transfer_queue_index);
 
-    let transfer_pool = unsafe {
-        device.create_command_pool(&info, None)?
-    };
+    let transfer_pool = unsafe { device.create_command_pool(&info, None)? };
 
     commands.insert_singleton(CommandPools {
         graphics: graphics_pool,

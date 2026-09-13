@@ -4,8 +4,8 @@ use crate::image::get_memory_type_index;
 use crate::instance::VulkanInstance;
 use crate::swapchain::Swapchain;
 use ash::vk;
-use flux_ecs::Single;
 use flux_ecs::Commands;
+use flux_ecs::Single;
 use glam::{Mat4, Vec2, Vec3};
 use log::debug;
 use std::ptr::copy_nonoverlapping as memcpy;
@@ -47,13 +47,11 @@ pub struct VertexBuffer {
     pub memory: vk::DeviceMemory,
 }
 
-
 #[derive(flux_ecs::Component)]
 pub struct IndexBuffer {
     pub buffer: vk::Buffer,
     pub memory: vk::DeviceMemory,
 }
-
 
 pub struct UniformBuffer {
     pub buffer: vk::Buffer,
@@ -64,7 +62,6 @@ pub struct UniformBuffer {
 pub struct UniformBuffers {
     pub buffers: Vec<UniformBuffer>,
 }
-
 
 pub fn create_vertex_buffer(
     instance: Single<&VulkanInstance>,

@@ -160,8 +160,13 @@ mod tests {
             "flux_renderer::instance::VulkanInstance",
             "ünïcode::Pösition",
         ];
-        let keys: HashSet<ComponentKey> = paths.iter().map(|p| ComponentKey::from_path(p)).collect();
-        assert_eq!(keys.len(), paths.len(), "every distinct path must yield a distinct key");
+        let keys: HashSet<ComponentKey> =
+            paths.iter().map(|p| ComponentKey::from_path(p)).collect();
+        assert_eq!(
+            keys.len(),
+            paths.len(),
+            "every distinct path must yield a distinct key"
+        );
     }
 
     #[test]
@@ -175,7 +180,10 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::assertions_on_constants, reason = "deliberately checks compile-time constants")]
+    #[allow(
+        clippy::assertions_on_constants,
+        reason = "deliberately checks compile-time constants"
+    )]
     fn const_equality_agrees_with_runtime_equality() {
         const A: ComponentKey = ComponentKey::from_path("a");
         const B: ComponentKey = ComponentKey::from_path("b");
@@ -195,12 +203,18 @@ mod tests {
             "ComponentKey(0x6c62272e07bb014262b821756295c58d)"
         );
         // Small values are zero-padded to the full 32 hex digits.
-        assert_eq!(format!("{:?}", ComponentKey(1)), format!("ComponentKey({:#034x})", 1u128));
+        assert_eq!(
+            format!("{:?}", ComponentKey(1)),
+            format!("ComponentKey({:#034x})", 1u128)
+        );
         assert!(format!("{:?}", ComponentKey(1)).ends_with("0001)"));
     }
 
     #[test]
-    #[allow(clippy::assertions_on_constants, reason = "deliberately checks compile-time constants")]
+    #[allow(
+        clippy::assertions_on_constants,
+        reason = "deliberately checks compile-time constants"
+    )]
     fn manual_component_impl_gets_the_documented_defaults() {
         struct Manual;
         impl Component for Manual {

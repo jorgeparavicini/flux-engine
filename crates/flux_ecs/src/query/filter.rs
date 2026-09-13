@@ -64,7 +64,7 @@ macro_rules! tuple_query_filter {
             fn filter_matches(signature: &[ComponentId], reg: &Registry) -> bool {
                 $($t::filter_matches(signature, reg))&&+
             }
-            
+
             fn keep_chunk(view: &ChunkView<'_>, last_seen: u64) -> bool {
                 $($t::keep_chunk(view, last_seen))&&+
             }
@@ -123,7 +123,10 @@ mod tests {
 
     fn a_sum<F: QueryFilter>(w: &mut World) -> u64 {
         let mut state = QueryState::<&A, F>::new();
-        w.query(&mut state).chunks().map(|a| a.iter().map(|v| v.0).sum::<u64>()).sum()
+        w.query(&mut state)
+            .chunks()
+            .map(|a| a.iter().map(|v| v.0).sum::<u64>())
+            .sum()
     }
 
     // -------------------------------------------------------------- predicates
@@ -136,7 +139,11 @@ mod tests {
     #[test]
     fn with_requires_the_component() {
         assert_eq!(a_sum::<With<B>>(&mut world()), 2);
-        assert_eq!(a_sum::<With<Frozen>>(&mut world()), 4, "tag components filter too");
+        assert_eq!(
+            a_sum::<With<Frozen>>(&mut world()),
+            4,
+            "tag components filter too"
+        );
     }
 
     #[test]
@@ -167,7 +174,11 @@ mod tests {
     fn tuple_filters_require_every_member() {
         assert_eq!(a_sum::<(Without<B>, Without<Frozen>)>(&mut world()), 1);
         assert_eq!(a_sum::<(With<B>, Without<Frozen>)>(&mut world()), 2);
-        assert_eq!(a_sum::<(With<B>, With<Frozen>)>(&mut world()), 0, "no archetype has both");
+        assert_eq!(
+            a_sum::<(With<B>, With<Frozen>)>(&mut world()),
+            0,
+            "no archetype has both"
+        );
     }
 
     // ------------------------------------------------------------- integration
@@ -190,11 +201,17 @@ mod tests {
         let mut w = World::new();
         w.spawn((A(1),));
         let mut state = QueryState::<&A, Without<B>>::new();
-        assert_eq!(w.query(&mut state).chunks().map(|a| a.len()).sum::<usize>(), 1);
+        assert_eq!(
+            w.query(&mut state).chunks().map(|a| a.len()).sum::<usize>(),
+            1
+        );
 
         w.spawn((A(2), B(0))); // new archetype AFTER first use; filtered out
-        w.spawn((A(4),));      // same archetype as the first: no new match entry
+        w.spawn((A(4),)); // same archetype as the first: no new match entry
         let rows: usize = w.query(&mut state).chunks().map(|a| a.len()).sum();
-        assert_eq!(rows, 2, "unfiltered rows appear, the filtered archetype never does");
+        assert_eq!(
+            rows, 2,
+            "unfiltered rows appear, the filtered archetype never does"
+        );
     }
 }

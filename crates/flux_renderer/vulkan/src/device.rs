@@ -1,8 +1,8 @@
 use crate::instance::VulkanInstance;
 use crate::surface::VulkanSurface;
 use ash::{khr, vk};
-use flux_ecs::Single;
 use flux_ecs::Commands;
+use flux_ecs::Single;
 use log::{debug, info};
 use std::collections::HashSet;
 use std::ffi::CStr;
@@ -11,8 +11,7 @@ use std::ops::Deref;
 use thiserror::Error;
 
 // TODO: This should probably not be called `DeviceRequirements` as it is also used to create the logical device
-#[derive(Debug, Clone)]
-#[derive(flux_ecs::Component)]
+#[derive(Debug, Clone, flux_ecs::Component)]
 pub struct DeviceRequirements {
     pub extensions: Vec<&'static CStr>,
     pub prefer_discrete_gpu: bool,
@@ -31,7 +30,6 @@ impl Default for DeviceRequirements {
         }
     }
 }
-
 
 #[derive(Error, Debug)]
 pub enum SuitabilityError {
@@ -86,7 +84,6 @@ impl Debug for PhysicalDevice {
             .finish()
     }
 }
-
 
 impl Deref for PhysicalDevice {
     type Target = vk::PhysicalDevice;
@@ -406,7 +403,6 @@ pub struct Device {
     pub transfer_queue_index: u32,
 }
 
-
 impl Deref for Device {
     type Target = ash::Device;
 
@@ -421,7 +417,10 @@ pub fn create_logical_device(
     device_requirements: Option<Single<&DeviceRequirements>>,
     mut commands: Commands,
 ) -> Result<(), vk::Result> {
-    info!("Creating logical device for physical device: {:?}", *physical_device);
+    info!(
+        "Creating logical device for physical device: {:?}",
+        *physical_device
+    );
 
     let mut unique_indices = HashSet::new();
     unique_indices.insert(physical_device.indices.graphics);

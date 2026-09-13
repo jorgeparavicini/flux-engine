@@ -2,8 +2,8 @@ use crate::device::{Device, PhysicalDevice};
 use crate::instance::{SurfaceProviderResource, VulkanInstance};
 use crate::surface::VulkanSurface;
 use ash::{khr, vk};
-use flux_ecs::Single;
 use flux_ecs::Commands;
+use flux_ecs::Single;
 use log::debug;
 use std::ops::Deref;
 
@@ -16,7 +16,6 @@ pub struct Swapchain {
     pub image_views: Vec<vk::ImageView>,
     pub max_frames_in_flight: usize,
 }
-
 
 impl Deref for Swapchain {
     type Target = vk::SwapchainKHR;

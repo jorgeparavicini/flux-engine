@@ -110,7 +110,12 @@ pub trait ParamFunction<Params: ParamSet, Out: SystemOutput>: 'static {
     /// # Safety
     ///
     /// `Params::ACCESS` must be conflict-free.
-    unsafe fn call(&mut self, states: &mut Params::States, cells: &WorldCells<'_>, version: u64) -> Out;
+    unsafe fn call(
+        &mut self,
+        states: &mut Params::States,
+        cells: &WorldCells<'_>,
+        version: u64,
+    ) -> Out;
 }
 
 /// A plain function together with its parameters' persistent state.
@@ -172,7 +177,10 @@ where
     }
 
     fn refined_access(&mut self, world: &World) -> crate::system::param::RefinedAccess {
-        let states = self.state.as_mut().expect("initialize before refined_access");
+        let states = self
+            .state
+            .as_mut()
+            .expect("initialize before refined_access");
         let mut out = crate::system::param::RefinedAccess::default();
         Params::refined_access(states, &world.cells(), &mut out);
         out
@@ -267,12 +275,75 @@ param_set!((P1, s1), (P2, s2), (P3, s3));
 param_set!((P1, s1), (P2, s2), (P3, s3), (P4, s4));
 param_set!((P1, s1), (P2, s2), (P3, s3), (P4, s4), (P5, s5));
 param_set!((P1, s1), (P2, s2), (P3, s3), (P4, s4), (P5, s5), (P6, s6));
-param_set!((P1, s1), (P2, s2), (P3, s3), (P4, s4), (P5, s5), (P6, s6), (P7, s7));
-param_set!((P1, s1), (P2, s2), (P3, s3), (P4, s4), (P5, s5), (P6, s6), (P7, s7), (P8, s8));
-param_set!((P1, s1), (P2, s2), (P3, s3), (P4, s4), (P5, s5), (P6, s6), (P7, s7), (P8, s8), (P9, s9));
-param_set!((P1, s1), (P2, s2), (P3, s3), (P4, s4), (P5, s5), (P6, s6), (P7, s7), (P8, s8), (P9, s9), (P10, s10));
-param_set!((P1, s1), (P2, s2), (P3, s3), (P4, s4), (P5, s5), (P6, s6), (P7, s7), (P8, s8), (P9, s9), (P10, s10), (P11, s11));
-param_set!((P1, s1), (P2, s2), (P3, s3), (P4, s4), (P5, s5), (P6, s6), (P7, s7), (P8, s8), (P9, s9), (P10, s10), (P11, s11), (P12, s12));
+param_set!(
+    (P1, s1),
+    (P2, s2),
+    (P3, s3),
+    (P4, s4),
+    (P5, s5),
+    (P6, s6),
+    (P7, s7)
+);
+param_set!(
+    (P1, s1),
+    (P2, s2),
+    (P3, s3),
+    (P4, s4),
+    (P5, s5),
+    (P6, s6),
+    (P7, s7),
+    (P8, s8)
+);
+param_set!(
+    (P1, s1),
+    (P2, s2),
+    (P3, s3),
+    (P4, s4),
+    (P5, s5),
+    (P6, s6),
+    (P7, s7),
+    (P8, s8),
+    (P9, s9)
+);
+param_set!(
+    (P1, s1),
+    (P2, s2),
+    (P3, s3),
+    (P4, s4),
+    (P5, s5),
+    (P6, s6),
+    (P7, s7),
+    (P8, s8),
+    (P9, s9),
+    (P10, s10)
+);
+param_set!(
+    (P1, s1),
+    (P2, s2),
+    (P3, s3),
+    (P4, s4),
+    (P5, s5),
+    (P6, s6),
+    (P7, s7),
+    (P8, s8),
+    (P9, s9),
+    (P10, s10),
+    (P11, s11)
+);
+param_set!(
+    (P1, s1),
+    (P2, s2),
+    (P3, s3),
+    (P4, s4),
+    (P5, s5),
+    (P6, s6),
+    (P7, s7),
+    (P8, s8),
+    (P9, s9),
+    (P10, s10),
+    (P11, s11),
+    (P12, s12)
+);
 
 #[cfg(test)]
 mod tests {
@@ -283,8 +354,10 @@ mod tests {
     macro_rules! component {
         ($name:ident) => {
             impl Component for $name {
-                const KEY: ComponentKey =
-                    ComponentKey::from_path(concat!("system::function::tests::", stringify!($name)));
+                const KEY: ComponentKey = ComponentKey::from_path(concat!(
+                    "system::function::tests::",
+                    stringify!($name)
+                ));
             }
         };
     }
@@ -316,7 +389,11 @@ mod tests {
         system.run(&mut world);
 
         let mut check = QueryState::<&A>::new();
-        let sum: u64 = world.query(&mut check).chunks().map(|a| a.iter().map(|v| v.0).sum::<u64>()).sum();
+        let sum: u64 = world
+            .query(&mut check)
+            .chunks()
+            .map(|a| a.iter().map(|v| v.0).sum::<u64>())
+            .sum();
         assert_eq!(sum, 12);
     }
 
@@ -427,14 +504,26 @@ mod tests {
         let mut system = watch.into_system();
 
         system.run(&mut world);
-        assert_eq!(world.get::<B>(probe), Some(&B(1)), "first run observes the spawn");
+        assert_eq!(
+            world.get::<B>(probe),
+            Some(&B(1)),
+            "first run observes the spawn"
+        );
         system.run(&mut world);
-        assert_eq!(world.get::<B>(probe), Some(&B(1)), "nothing changed: observes nothing");
+        assert_eq!(
+            world.get::<B>(probe),
+            Some(&B(1)),
+            "nothing changed: observes nothing"
+        );
 
         let mut touch = QueryState::<&mut A>::new();
         world.query(&mut touch).for_each(|a| a.0 = 2);
         system.run(&mut world);
-        assert_eq!(world.get::<B>(probe), Some(&B(2)), "the write is observed exactly once");
+        assert_eq!(
+            world.get::<B>(probe),
+            Some(&B(2)),
+            "the write is observed exactly once"
+        );
         system.run(&mut world);
         assert_eq!(world.get::<B>(probe), Some(&B(2)));
     }
@@ -447,7 +536,11 @@ mod tests {
         fn writer(query: Query<&mut A>) {
             query.for_each(|a| a.0 += 1);
         }
-        fn reader(changed: Query<&A, Changed<A>>, out: Query<&mut B>, mut observations: Local<u16>) {
+        fn reader(
+            changed: Query<&A, Changed<A>>,
+            out: Query<&mut B>,
+            mut observations: Local<u16>,
+        ) {
             let mut n = 0;
             changed.for_each(|_| n += 1);
             *observations += n;
@@ -462,12 +555,20 @@ mod tests {
 
         w.run(&mut world);
         r.run(&mut world);
-        assert_eq!(world.get::<B>(probe), Some(&B(1)), "spawn + first write, one chunk observation");
+        assert_eq!(
+            world.get::<B>(probe),
+            Some(&B(1)),
+            "spawn + first write, one chunk observation"
+        );
         w.run(&mut world);
         r.run(&mut world);
         assert_eq!(world.get::<B>(probe), Some(&B(2)), "second write observed");
         r.run(&mut world);
-        assert_eq!(world.get::<B>(probe), Some(&B(2)), "no third observation without a write");
+        assert_eq!(
+            world.get::<B>(probe),
+            Some(&B(2)),
+            "no third observation without a write"
+        );
     }
 
     #[test]
