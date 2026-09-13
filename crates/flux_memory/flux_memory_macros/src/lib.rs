@@ -37,7 +37,7 @@ impl VisitMut for RegionVisitor {
                 #original_body
             });
 
-            func.block = Box::new(new_body);
+            *func.block = new_body;
         }
 
         // Continue visiting the function body.
@@ -92,7 +92,7 @@ pub fn memory_region(attr: TokenStream, item: TokenStream) -> TokenStream {
             #original_body
         });
 
-        function.block = Box::new(new_body);
+        *function.block = new_body;
         function.to_token_stream().into()
     } else {
         syn::Error::new_spanned(
@@ -117,6 +117,6 @@ pub fn override_region(attr: TokenStream, item: TokenStream) -> TokenStream {
         #original_body
     });
 
-    function.block = Box::new(new_body);
+    *function.block = new_body;
     function.to_token_stream().into()
 }

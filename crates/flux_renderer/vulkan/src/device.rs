@@ -179,7 +179,7 @@ fn evaluate_physical_device(
             .to_string()
     };
 
-    debug!("Checking suitability of physical device: {0:}", &name);
+    debug!("Checking suitability of physical device: {name}");
 
     let indices = QueueFamilyIndices::get(entry, instance, physical_device, surface)?;
     check_required_device_extensions(instance, physical_device, &device_requirements.extensions)?;

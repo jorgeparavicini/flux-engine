@@ -158,7 +158,7 @@ fn create_index_buffer(
         return Ok(None);
     };
 
-    let size = size_of::<u32>() * indices.len();
+    let size = size_of_val(indices);
 
     let (staging_buffer, staging_buffer_memory) = create_buffer(
         instance,

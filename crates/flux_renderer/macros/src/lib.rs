@@ -50,7 +50,5 @@ pub fn derive_vertex(input: TokenStream) -> TokenStream {
         }
     };
 
-    panic!("Output {:?}", output);
-
     TokenStream::from(output)
 }

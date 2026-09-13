@@ -277,8 +277,8 @@ pub fn render(
     // TODO: Probably should handle explicit resizes here as well
     if changed {
         commands.insert_singleton(SwapchainOutdated(true));
-    } else if let Err(e) = result {
-        return Err(e);
+    } else {
+        result?;
     }
 
     frame_data.frame_index = (frame_data.frame_index + 1) % swapchain.max_frames_in_flight;
@@ -360,17 +360,15 @@ fn record_command_buffer(
                     .layer_count(1),
             );
 
-        unsafe {
-            device.cmd_pipeline_barrier(
-                *command_buffer,
-                vk::PipelineStageFlags::TOP_OF_PIPE, // Source stage
-                vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT, // Destination stage
-                vk::DependencyFlags::empty(),
-                &[],
-                &[],
-                &[image_barrier_to_render],
-            );
-        }
+        device.cmd_pipeline_barrier(
+            *command_buffer,
+            vk::PipelineStageFlags::TOP_OF_PIPE, // Source stage
+            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT, // Destination stage
+            vk::DependencyFlags::empty(),
+            &[],
+            &[],
+            &[image_barrier_to_render],
+        );
 
         let render_area = vk::Rect2D::default()
             .offset(vk::Offset2D::default())
