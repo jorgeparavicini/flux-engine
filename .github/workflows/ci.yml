@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Installs the toolchain and components pinned in rust-toolchain.toml
+      - run: rustup toolchain install
+
+      # ash is built with the "linked" feature, so the Vulkan loader must be
+      # present at link time even though no device is used in CI.
+      - run: sudo apt-get update && sudo apt-get install -y libvulkan-dev
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo fmt --all --check
+
+      # Denied lints (e.g. clippy::mod_module_files) fail the build; the
+      # pedantic/nursery groups stay warnings until the backlog is cleared,
+      # then this becomes `cargo clippy ... -- -D warnings`.
+      - run: cargo clippy --workspace --all-targets
+
+      - run: cargo test --workspace
