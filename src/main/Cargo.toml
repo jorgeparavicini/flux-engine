@@ -1,13 +1,13 @@
 [package]
-name = "main"
-version = "0.1.0"
-edition = "2024"
+name = "flux_app"
+version.workspace = true
+edition.workspace = true
 
 [dependencies]
-flux_ecs = { path = "../../crates/flux_ecs" }
-flux_renderer = { path = "../../crates/flux_renderer" }
-pretty_env_logger = "0.5.0"
-winit = "0.30.12"
+flux_ecs = { workspace = true }
+flux_renderer = { workspace = true }
+pretty_env_logger = { workspace = true }
+winit = { workspace = true }
 
 [lints]
 workspace = true

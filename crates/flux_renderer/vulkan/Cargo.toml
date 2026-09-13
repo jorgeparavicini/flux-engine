@@ -1,19 +1,19 @@
 [package]
 name = "flux_renderer_vulkan"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 
 [dependencies]
-flux_ecs = { path = "../../flux_ecs" }
+flux_ecs = { workspace = true }
+flux_renderer_abstractions = { workspace = true }
+flux_renderer_macros = { workspace = true }
 
-ash = { version = "0.38.0", features = ["linked"] }
-ash-window = "0.13.0"
-log = "0.4.27"
-raw-window-handle = "0.6.2"
-thiserror = "2.0.12"
-glam = "0.30.5"
-flux_renderer_macros = { version = "0.1.0", path = "../macros" }
-flux_renderer_abstractions = { version = "0.1.0", path = "../abstractions" }
+ash = { workspace = true }
+ash-window = { workspace = true }
+glam = { workspace = true }
+log = { workspace = true }
+raw-window-handle = { workspace = true }
+thiserror = { workspace = true }
 
 [lints]
 workspace = true

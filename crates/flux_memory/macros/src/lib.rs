@@ -3,8 +3,8 @@ use quote::ToTokens;
 use syn::parse::{Parse, ParseStream};
 use syn::visit_mut::visit_item_fn_mut;
 use syn::{
-    parse_macro_input, parse_quote, visit_mut::VisitMut, Attribute, Block, Item, ItemFn, ItemMod,
-    Path,
+    Attribute, Block, Item, ItemFn, ItemMod, Path, parse_macro_input, parse_quote,
+    visit_mut::VisitMut,
 };
 
 /// Represents a memory region enum variant.

@@ -3,7 +3,7 @@ members = [
     "crates/flux_ecs",
     "crates/flux_ecs/macros",
     "crates/flux_memory",
-    "crates/flux_memory/flux_memory_macros",
+    "crates/flux_memory/macros",
     "crates/flux_renderer",
     "crates/flux_renderer/abstractions",
     "crates/flux_renderer/macros",
@@ -12,15 +12,44 @@ members = [
 ]
 resolver = "2"
 
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+
 [workspace.dependencies]
+# Internal crates
+flux_ecs = { path = "crates/flux_ecs" }
+flux_ecs_macros = { path = "crates/flux_ecs/macros" }
+flux_memory = { path = "crates/flux_memory" }
+flux_memory_macros = { path = "crates/flux_memory/macros" }
+flux_renderer = { path = "crates/flux_renderer" }
+flux_renderer_abstractions = { path = "crates/flux_renderer/abstractions" }
+flux_renderer_macros = { path = "crates/flux_renderer/macros" }
+flux_renderer_vulkan = { path = "crates/flux_renderer/vulkan" }
+
+# External dependencies
 anyhow = "1.0.104"
+ash = { version = "0.38.0", features = ["linked"] }
+ash-window = "0.13.0"
+glam = "0.30.5"
 log = "0.4.34"
-syn = "3.0.4"
-quote = "1.0.47"
+pretty_env_logger = "0.5.0"
 proc-macro2 = "1.0.107"
+quote = "1.0.47"
+raw-window-handle = "0.6.2"
+syn = "3.0.4"
+thiserror = "2.0.12"
+winit = "0.30.12"
+
+# Dev dependencies
 criterion = "0.8.2"
 proptest = "1.11.0"
 trybuild = "1.0"
 
 [workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
 mod_module_files = "deny"
+# Systems receive params such as Query and Single by value; the ECS injects
+# them per invocation, so passing by reference is not an option.
+needless_pass_by_value = "allow"

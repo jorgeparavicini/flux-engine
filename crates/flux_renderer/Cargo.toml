@@ -1,12 +1,12 @@
 [package]
 name = "flux_renderer"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 
 [dependencies]
-flux_renderer_abstractions = { version = "0.1.0", path = "abstractions" }
-flux_renderer_macros = { version = "0.1.0", path = "macros" }
-flux_renderer_vulkan = { version = "0.1.0", path = "vulkan" }
+flux_renderer_abstractions = { workspace = true }
+flux_renderer_macros = { workspace = true }
+flux_renderer_vulkan = { workspace = true }
 
 [lints]
 workspace = true

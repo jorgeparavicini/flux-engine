@@ -1,14 +1,14 @@
 [package]
 name = "flux_renderer_macros"
-version = "0.1.0"
-edition = "2024"
-
-[dependencies]
-flux_renderer_abstractions = { version = "0.1.0", path = "../abstractions" }
-syn = { workspace = true, features = ["full"] }
+version.workspace = true
+edition.workspace = true
 
 [lib]
 proc-macro = true
+
+[dependencies]
+flux_renderer_abstractions = { workspace = true }
+syn = { workspace = true, features = ["full"] }
 
 [lints]
 workspace = true

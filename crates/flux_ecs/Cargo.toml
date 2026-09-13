@@ -1,13 +1,13 @@
 [package]
 name = "flux_ecs"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
 
 [features]
 reference = []
 
 [dependencies]
-flux_ecs_macros = { path = "./macros" }
+flux_ecs_macros = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
@@ -21,6 +21,7 @@ workspace = true
 [[bench]]
 name = "baseline"
 harness = false
+
 [[bench]]
 name = "iteration"
 harness = false
