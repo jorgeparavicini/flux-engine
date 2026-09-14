@@ -3,7 +3,7 @@ use ash::khr::surface;
 use ash::vk;
 use flux_ecs::Commands;
 use flux_ecs::Single;
-use flux_renderer_abstractions::surface::SurfaceProviderResource;
+use flux_renderer_api::surface::PresentTarget;
 use log::info;
 use std::ops::Deref;
 
@@ -21,7 +21,7 @@ impl Deref for VulkanSurface {
 }
 
 pub fn create_surface(
-    surface_provider_resource: Single<&SurfaceProviderResource>,
+    surface_provider_resource: Single<&PresentTarget>,
     instance: Single<&VulkanInstance>,
     mut commands: Commands,
 ) -> Result<(), vk::Result> {
@@ -30,8 +30,8 @@ pub fn create_surface(
         ash_window::create_surface(
             &instance.entry,
             &instance,
-            surface_provider_resource.get_display_handle(),
-            surface_provider_resource.get_window_handle(),
+            surface_provider_resource.display_handle(),
+            surface_provider_resource.window_handle(),
             None,
         )
     }?;

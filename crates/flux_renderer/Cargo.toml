@@ -8,7 +8,7 @@ default = ["vulkan"]
 vulkan = ["dep:flux_renderer_vulkan"]
 
 [dependencies]
-flux_renderer_abstractions = { workspace = true }
+flux_renderer_api = { workspace = true }
 flux_renderer_macros = { workspace = true }
 flux_renderer_vulkan = { workspace = true, optional = true }
 

@@ -7,7 +7,7 @@ edition.workspace = true
 proc-macro = true
 
 [dependencies]
-flux_renderer_abstractions = { workspace = true }
+flux_renderer_api = { workspace = true }
 syn = { workspace = true, features = ["full"] }
 
 [lints]

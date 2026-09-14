@@ -127,3 +127,7 @@ Temporary Items
 .apdisk
 
 .cargo/config.toml
+
+# Local working docs for the renderer rework, not tracked
+crates/flux_renderer/DESIGN.md
+crates/flux_renderer/IMPLEMENTATION.md

@@ -5,7 +5,7 @@ edition.workspace = true
 
 [dependencies]
 flux_ecs = { workspace = true }
-flux_renderer_abstractions = { workspace = true }
+flux_renderer_api = { workspace = true }
 flux_renderer_macros = { workspace = true }
 
 ash = { workspace = true }

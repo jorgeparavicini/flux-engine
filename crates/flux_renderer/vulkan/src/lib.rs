@@ -19,7 +19,7 @@ use flux_ecs::Commands;
 use flux_ecs::Query;
 use flux_ecs::Single;
 use flux_ecs::{Schedule, World};
-use flux_renderer_abstractions::mesh::Mesh;
+use flux_renderer_api::mesh::Mesh;
 use log::debug;
 
 mod buffers;
@@ -75,7 +75,7 @@ pub fn setup(world: &mut World) {
 }
 
 /// Creates every Vulkan resource, in dependency order.
-pub fn init_schedule() -> Schedule {
+pub fn startup_schedule() -> Schedule {
     let mut schedule = Schedule::new();
     schedule.add(create_instance);
     schedule.add(create_surface);
@@ -134,7 +134,7 @@ pub fn render_schedule() -> Schedule {
 }
 
 /// Tears every Vulkan resource down, in reverse dependency order.
-pub fn destroy_schedule() -> Schedule {
+pub fn shutdown_schedule() -> Schedule {
     let mut schedule = Schedule::new();
     schedule.add(wait_device_idle);
     schedule.add(destroy_sync_objects);

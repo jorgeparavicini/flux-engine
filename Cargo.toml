@@ -5,10 +5,10 @@ members = [
     "crates/flux_memory",
     "crates/flux_memory/macros",
     "crates/flux_renderer",
-    "crates/flux_renderer/abstractions",
+    "crates/flux_renderer/api",
     "crates/flux_renderer/macros",
     "crates/flux_renderer/vulkan",
-    "src/main",
+    "src/sandbox",
 ]
 resolver = "2"
 
@@ -23,7 +23,7 @@ flux_ecs_macros = { path = "crates/flux_ecs/macros" }
 flux_memory = { path = "crates/flux_memory" }
 flux_memory_macros = { path = "crates/flux_memory/macros" }
 flux_renderer = { path = "crates/flux_renderer" }
-flux_renderer_abstractions = { path = "crates/flux_renderer/abstractions" }
+flux_renderer_api = { path = "crates/flux_renderer/api" }
 flux_renderer_macros = { path = "crates/flux_renderer/macros" }
 flux_renderer_vulkan = { path = "crates/flux_renderer/vulkan" }
 

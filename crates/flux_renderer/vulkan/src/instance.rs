@@ -3,7 +3,7 @@ use ash::vk::DebugUtilsMessengerEXT;
 use ash::{Instance, vk};
 use flux_ecs::Commands;
 use flux_ecs::Single;
-use flux_renderer_abstractions::surface::SurfaceProviderResource;
+use flux_renderer_api::surface::PresentTarget;
 use log::{debug, error, info, warn};
 use std::collections::HashSet;
 use std::ffi::{CStr, c_void};
@@ -41,7 +41,7 @@ impl Deref for VulkanInstance {
 }
 
 pub fn create_instance(
-    surface_provider_resource: Single<&SurfaceProviderResource>,
+    surface_provider_resource: Single<&PresentTarget>,
     renderer_settings: Option<Single<&RendererSettings>>,
     mut commands: Commands,
 ) -> Result<(), vk::Result> {
@@ -99,7 +99,7 @@ pub fn create_instance(
     };
 
     let mut extensions = ash_window::enumerate_required_extensions(
-        surface_provider_resource.provider.get_display_handle(),
+        surface_provider_resource.provider.display_handle(),
     )?
     .to_vec();
 

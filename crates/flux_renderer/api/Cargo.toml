@@ -1,5 +1,5 @@
 [package]
-name = "flux_renderer_abstractions"
+name = "flux_renderer_api"
 version.workspace = true
 edition.workspace = true
 

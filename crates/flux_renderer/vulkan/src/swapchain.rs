@@ -4,7 +4,7 @@ use crate::surface::VulkanSurface;
 use ash::{khr, vk};
 use flux_ecs::Commands;
 use flux_ecs::Single;
-use flux_renderer_abstractions::surface::SurfaceProviderResource;
+use flux_renderer_api::surface::PresentTarget;
 use log::debug;
 use std::ops::Deref;
 
@@ -31,7 +31,7 @@ pub fn create_swapchain(
     physical_device: Single<&PhysicalDevice>,
     device: Single<&Device>,
     surface: Single<&VulkanSurface>,
-    surface_provider: Single<&SurfaceProviderResource>,
+    surface_provider: Single<&PresentTarget>,
     mut commands: Commands,
 ) -> Result<(), vk::Result> {
     debug!("Creating swapchain");
@@ -61,7 +61,7 @@ pub fn create_swapchain(
     let extent = if capabilities.current_extent.width != u32::MAX {
         capabilities.current_extent
     } else {
-        let (width, height) = surface_provider.get_extent();
+        let (width, height) = surface_provider.extent();
         let min_size = capabilities.min_image_extent;
         let max_size = capabilities.max_image_extent;
 

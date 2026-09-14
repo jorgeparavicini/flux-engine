@@ -6,8 +6,8 @@ use ash::vk;
 use flux_ecs::Commands;
 use flux_ecs::Query;
 use flux_ecs::Single;
-use flux_renderer_abstractions::mesh::VertexFormat::Float32x3;
-use flux_renderer_abstractions::mesh::{Mesh, Vertex, VertexAttribute, VertexLayout};
+use flux_renderer_api::mesh::VertexFormat::Float32x3;
+use flux_renderer_api::mesh::{Mesh, Vertex, VertexAttribute, VertexLayout};
 use log::debug;
 use std::ptr::copy_nonoverlapping;
 
@@ -98,7 +98,7 @@ fn create_vertex_buffer(
 ) -> Result<(vk::Buffer, vk::DeviceMemory), vk::Result> {
     debug!("Creating vertex buffer for mesh {:?}", mesh);
 
-    let size = Mesh::<CoolVertex>::size() as u64 * mesh.vertices.len() as u64;
+    let size = Mesh::<CoolVertex>::vertex_size() as u64 * mesh.vertices.len() as u64;
 
     let (staging_buffer, staging_buffer_memory) = create_buffer(
         instance,

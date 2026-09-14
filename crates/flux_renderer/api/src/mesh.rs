@@ -1,6 +1,5 @@
 use std::fmt::Debug;
 
-// TODO: Not a fan of this naming
 pub enum VertexFormat {
     Float32x2,
     Float32x3,
@@ -39,7 +38,7 @@ impl<V: Vertex> Debug for Mesh<V> {
 }
 
 impl<V: Vertex> Mesh<V> {
-    pub fn size() -> usize {
+    pub fn vertex_size() -> usize {
         size_of::<V>()
     }
 }
