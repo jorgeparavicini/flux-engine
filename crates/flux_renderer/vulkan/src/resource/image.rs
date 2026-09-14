@@ -1,10 +1,10 @@
-use crate::device::instance::VulkanInstance;
+use crate::device::instance::Instance;
 use crate::device::logical::Device;
 use crate::device::selection::PhysicalDevice;
 use ash::vk;
 
 pub fn create_image(
-    instance: &VulkanInstance,
+    instance: &Instance,
     physical_device: &PhysicalDevice,
     device: &Device,
     width: u32,
@@ -51,7 +51,7 @@ pub fn create_image(
 }
 
 pub fn get_memory_type_index(
-    instance: &VulkanInstance,
+    instance: &Instance,
     physical_device: &PhysicalDevice,
     properties: vk::MemoryPropertyFlags,
     requirements: vk::MemoryRequirements,

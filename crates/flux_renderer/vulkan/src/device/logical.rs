@@ -1,4 +1,4 @@
-use crate::device::instance::VulkanInstance;
+use crate::device::instance::Instance;
 use crate::device::selection::{DeviceRequirements, PhysicalDevice};
 use crate::error::RendererError;
 use ash::vk;
@@ -28,7 +28,7 @@ impl Deref for Device {
 }
 
 pub fn create_logical_device(
-    instance: Single<&VulkanInstance>,
+    instance: Single<&Instance>,
     physical_device: Single<&PhysicalDevice>,
     device_requirements: Option<Single<&DeviceRequirements>>,
     mut commands: Commands,

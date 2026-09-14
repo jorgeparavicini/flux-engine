@@ -1,4 +1,4 @@
-use crate::device::instance::VulkanInstance;
+use crate::device::instance::Instance;
 use crate::device::logical::Device;
 use crate::device::selection::PhysicalDevice;
 use crate::render::commands::CommandPools;
@@ -54,7 +54,7 @@ pub struct VulkanMesh {
 }
 
 pub fn create_buffers(
-    instance: Single<&VulkanInstance>,
+    instance: Single<&Instance>,
     physical_device: Single<&PhysicalDevice>,
     device: Single<&Device>,
     command_pools: Single<&CommandPools>,
@@ -91,7 +91,7 @@ pub fn create_buffers(
 }
 
 fn create_vertex_buffer(
-    instance: &VulkanInstance,
+    instance: &Instance,
     physical_device: &PhysicalDevice,
     device: &Device,
     command_pools: &CommandPools,
@@ -138,7 +138,7 @@ fn create_vertex_buffer(
 }
 
 fn create_index_buffer(
-    instance: &VulkanInstance,
+    instance: &Instance,
     physical_device: &PhysicalDevice,
     device: &Device,
     command_pools: &CommandPools,

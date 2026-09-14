@@ -603,6 +603,7 @@ dependencies = [
 name = "flux_renderer"
 version = "0.1.0"
 dependencies = [
+ "flux_ecs",
  "flux_renderer_api",
  "flux_renderer_macros",
  "flux_renderer_vulkan",

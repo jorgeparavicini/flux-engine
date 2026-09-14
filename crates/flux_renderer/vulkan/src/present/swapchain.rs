@@ -1,4 +1,4 @@
-use crate::device::instance::VulkanInstance;
+use crate::device::instance::Instance;
 use crate::device::logical::Device;
 use crate::device::selection::PhysicalDevice;
 use crate::error::RendererError;
@@ -29,7 +29,7 @@ impl Deref for Swapchain {
 }
 
 pub fn create_swapchain(
-    instance: Single<&VulkanInstance>,
+    instance: Single<&Instance>,
     physical_device: Single<&PhysicalDevice>,
     device: Single<&Device>,
     surface: Single<&VulkanSurface>,
@@ -38,7 +38,7 @@ pub fn create_swapchain(
 ) -> Result<(), RendererError> {
     debug!("Creating swapchain");
 
-    let surface_loader = khr::surface::Instance::new(&instance.entry, &instance);
+    let surface_loader = khr::surface::Instance::new(instance.entry(), &instance);
     let capabilities = unsafe {
         surface_loader.get_physical_device_surface_capabilities(**physical_device, **surface)?
     };
@@ -148,7 +148,7 @@ fn create_image_view(image: vk::Image, format: vk::Format, device: &Device) -> v
 }
 
 pub fn destroy_swapchain(
-    instance: Single<&VulkanInstance>,
+    instance: Single<&Instance>,
     device: Single<&Device>,
     swapchain: Single<&Swapchain>,
     mut commands: Commands,

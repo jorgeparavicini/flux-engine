@@ -1,4 +1,4 @@
-use crate::device::instance::VulkanInstance;
+use crate::device::instance::Instance;
 use crate::device::logical::Device;
 use crate::device::selection::PhysicalDevice;
 use crate::error::RendererError;
@@ -66,7 +66,7 @@ pub struct UniformBuffers {
 }
 
 pub fn create_vertex_buffer(
-    instance: Single<&VulkanInstance>,
+    instance: Single<&Instance>,
     physical_device: Single<&PhysicalDevice>,
     device: Single<&Device>,
     command_pools: Single<&CommandPools>,
@@ -119,7 +119,7 @@ pub fn create_vertex_buffer(
 }
 
 pub fn create_index_buffer(
-    instance: Single<&VulkanInstance>,
+    instance: Single<&Instance>,
     physical_device: Single<&PhysicalDevice>,
     device: Single<&Device>,
     command_pools: Single<&CommandPools>,
@@ -173,7 +173,7 @@ pub fn create_index_buffer(
 }
 
 pub fn create_uniform_buffer(
-    instance: Single<&VulkanInstance>,
+    instance: Single<&Instance>,
     physical_device: Single<&PhysicalDevice>,
     device: Single<&Device>,
     swapchain: Single<&Swapchain>,
@@ -207,7 +207,7 @@ pub fn create_uniform_buffer(
 }
 
 pub fn create_buffer(
-    instance: &VulkanInstance,
+    instance: &Instance,
     physical_device: &PhysicalDevice,
     device: &Device,
     size: vk::DeviceSize,

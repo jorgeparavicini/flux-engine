@@ -1,4 +1,4 @@
-use crate::device::instance::VulkanInstance;
+use crate::device::instance::Instance;
 use crate::device::logical::Device;
 use crate::error::RendererError;
 use crate::pipeline::descriptors::Descriptors;
@@ -77,7 +77,7 @@ pub struct FrameData {
 }
 
 pub fn render(
-    instance: Single<&VulkanInstance>,
+    instance: Single<&Instance>,
     device: Single<&Device>,
     swapchain: Single<&Swapchain>,
     command_buffers_res: Single<&CommandBuffers>,

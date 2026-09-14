@@ -1,4 +1,4 @@
-use crate::device::instance::VulkanInstance;
+use crate::device::instance::Instance;
 use crate::error::RendererError;
 use ash::khr::surface;
 use ash::vk;
@@ -23,13 +23,13 @@ impl Deref for VulkanSurface {
 
 pub fn create_surface(
     surface_provider_resource: Single<&PresentTarget>,
-    instance: Single<&VulkanInstance>,
+    instance: Single<&Instance>,
     mut commands: Commands,
 ) -> Result<(), RendererError> {
     info!("Creating vulkan surface");
     let surface = unsafe {
         ash_window::create_surface(
-            &instance.entry,
+            instance.entry(),
             &instance,
             surface_provider_resource.display_handle(),
             surface_provider_resource.window_handle(),
@@ -44,12 +44,12 @@ pub fn create_surface(
 
 pub fn destroy_surface(
     surface: Single<&VulkanSurface>,
-    instance: Single<&VulkanInstance>,
+    instance: Single<&Instance>,
     mut commands: Commands,
 ) {
     info!("Destroying vulkan surface");
     unsafe {
-        let surface_loader = surface::Instance::new(&instance.entry, &instance);
+        let surface_loader = surface::Instance::new(instance.entry(), &instance);
         surface::Instance::destroy_surface(&surface_loader, **surface, None)
     }
     commands.remove_singleton::<VulkanSurface>();

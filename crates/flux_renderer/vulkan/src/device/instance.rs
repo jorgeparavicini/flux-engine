@@ -1,153 +1,169 @@
 use crate::error::RendererError;
 use ash::ext::debug_utils;
-use ash::vk::DebugUtilsMessengerEXT;
-use ash::{Instance, vk};
-use flux_ecs::Commands;
+use ash::vk;
 use flux_ecs::Single;
+use flux_ecs::{Commands, Component};
+use flux_renderer_api::settings::{AppInfo, RendererSettings};
 use flux_renderer_api::surface::PresentTarget;
 use log::{debug, error, info, warn};
+use raw_window_handle::RawDisplayHandle;
 use std::collections::HashSet;
-use std::ffi::{CStr, c_void};
+use std::ffi::{CStr, CString, c_void};
 use std::ops::Deref;
 
 const VALIDATION_ENABLED: bool = cfg!(debug_assertions);
 const VALIDATION_LAYER: &CStr = c"VK_LAYER_KHRONOS_validation";
 
-pub struct AppVersion {
-    pub major: u32,
-    pub minor: u32,
-    pub patch: u32,
+#[derive(Component)]
+#[component(non_send)]
+pub struct Instance {
+    entry: ash::Entry,
+    raw: ash::Instance,
+    debug: Option<(debug_utils::Instance, vk::DebugUtilsMessengerEXT)>,
+    pub extensions: InstanceExtensions,
 }
 
-// TODO: These are more related to the application than the renderer, create a separate module for application settings!
-#[derive(flux_ecs::Component)]
-pub struct RendererSettings {
-    pub app_name: &'static str,
-    pub app_version: AppVersion,
+impl Instance {
+    pub fn new(
+        display_handle: RawDisplayHandle,
+        app_info: &AppInfo,
+        _settings: &RendererSettings,
+    ) -> Result<Self, RendererError> {
+        info!("Creating the vulkan instance");
+        let entry = ash::Entry::linked();
+
+        let app_name = CString::new(app_info.name.as_str())
+            .expect("application name must not contain NUL bytes");
+        let engine_name = c"Flux Engine";
+        let app_version = vk::make_api_version(
+            0,
+            app_info.version.major,
+            app_info.version.minor,
+            app_info.version.patch,
+        );
+
+        let app_info = vk::ApplicationInfo::default()
+            .application_name(&app_name)
+            .application_version(app_version)
+            .engine_name(engine_name)
+            .engine_version(vk::make_api_version(0, 1, 0, 0))
+            .api_version(vk::make_api_version(0, 1, 3, 0));
+
+        let data = unsafe { entry.enumerate_instance_layer_properties()? };
+
+        let available_layers = data
+            .iter()
+            .map(|l| unsafe { CStr::from_ptr(l.layer_name.as_ptr()) })
+            .collect::<HashSet<_>>();
+
+        let validation = VALIDATION_ENABLED && available_layers.contains(&VALIDATION_LAYER);
+        if VALIDATION_ENABLED && !validation {
+            warn!("Validation layers requested but not available; continuing without them");
+        }
+
+        let enabled_layers = if validation {
+            info!(
+                "Enabling validation layers {}",
+                VALIDATION_LAYER.to_str().unwrap()
+            );
+            vec![VALIDATION_LAYER.as_ptr()]
+        } else {
+            Vec::new()
+        };
+
+        let extensions = InstanceExtensions {
+            debug_utils: validation,
+            portability: cfg!(any(target_os = "macos", target_os = "ios")),
+        };
+        if extensions.portability {
+            info!("Enabling apple portability extensions");
+        }
+
+        let mut extension_ptrs =
+            ash_window::enumerate_required_extensions(display_handle)?.to_vec();
+        extension_ptrs.extend(extensions.names().iter().map(|name| name.as_ptr()));
+
+        let create_flags = if extensions.portability {
+            vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR
+        } else {
+            vk::InstanceCreateFlags::default()
+        };
+
+        let mut create_info = vk::InstanceCreateInfo::default()
+            .application_info(&app_info)
+            .enabled_layer_names(&enabled_layers)
+            .enabled_extension_names(&extension_ptrs)
+            .flags(create_flags);
+
+        let mut debug_info = get_debug_messenger_create_info();
+        if extensions.debug_utils {
+            create_info = create_info.push_next(&mut debug_info);
+        }
+
+        let instance: ash::Instance = unsafe { entry.create_instance(&create_info, None)? };
+
+        let debug = if extensions.debug_utils {
+            let loader = debug_utils::Instance::new(&entry, &instance);
+            let messenger = unsafe { loader.create_debug_utils_messenger(&debug_info, None)? };
+            Some((loader, messenger))
+        } else {
+            None
+        };
+
+        Ok(Self {
+            entry,
+            raw: instance,
+            debug,
+            extensions,
+        })
+    }
+
+    pub const fn entry(&self) -> &ash::Entry {
+        &self.entry
+    }
 }
 
-#[derive(flux_ecs::Component)]
-pub struct VulkanInstance {
-    pub(crate) entry: ash::Entry,
-    pub(crate) instance: Instance,
-    debug_messenger: Option<DebugUtilsMessengerEXT>,
+#[derive(Debug, Default, Clone, Copy)]
+pub struct InstanceExtensions {
+    pub debug_utils: bool,
+    pub portability: bool,
 }
 
-impl Deref for VulkanInstance {
-    type Target = Instance;
+impl InstanceExtensions {
+    fn names(self) -> Vec<&'static CStr> {
+        let mut names = Vec::new();
+        if self.debug_utils {
+            names.push(debug_utils::NAME);
+        }
+        if self.portability {
+            names.push(ash::khr::portability_enumeration::NAME);
+            names.push(ash::khr::get_physical_device_properties2::NAME);
+        }
+        names
+    }
+}
+
+impl Deref for Instance {
+    type Target = ash::Instance;
 
     fn deref(&self) -> &Self::Target {
-        &self.instance
+        &self.raw
     }
 }
 
-pub fn create_instance(
-    surface_provider_resource: Single<&PresentTarget>,
-    renderer_settings: Option<Single<&RendererSettings>>,
-    mut commands: Commands,
-) -> Result<(), RendererError> {
-    info!("Creating the vulkan instance");
-    let entry = ash::Entry::linked();
+impl Drop for Instance {
+    fn drop(&mut self) {
+        info!("Destroying vulkan instance");
+        if let Some((loader, messenger)) = self.debug.take() {
+            unsafe {
+                loader.destroy_debug_utils_messenger(messenger, None);
+            }
+        }
 
-    // TODO: How do we make this configurable? As well as the application version?
-    let app_name = renderer_settings.as_ref().map_or_else(
-        || c"Flux Renderer",
-        |settings| {
-            CStr::from_bytes_with_nul(settings.app_name.as_bytes())
-                .expect("Invalid application name")
-        },
-    );
-    let engine_name = c"Flux Engine";
-
-    let app_version = renderer_settings.as_ref().map_or_else(
-        || vk::make_api_version(0, 1, 0, 0),
-        |settings| {
-            vk::make_api_version(
-                0,
-                settings.app_version.major,
-                settings.app_version.minor,
-                settings.app_version.patch,
-            )
-        },
-    );
-
-    let app_info = vk::ApplicationInfo::default()
-        .application_name(app_name)
-        .application_version(app_version)
-        .engine_name(engine_name)
-        .engine_version(vk::make_api_version(0, 1, 0, 0))
-        .api_version(vk::make_api_version(0, 1, 3, 0));
-
-    let data = unsafe { entry.enumerate_instance_layer_properties()? };
-
-    let available_layers = data
-        .iter()
-        .map(|l| unsafe { CStr::from_ptr(l.layer_name.as_ptr()) })
-        .collect::<HashSet<_>>();
-
-    if VALIDATION_ENABLED && !available_layers.contains(&VALIDATION_LAYER) {
-        error!("Validation layers are not available");
+        unsafe {
+            self.raw.destroy_instance(None);
+        }
     }
-
-    let enabled_layers = if VALIDATION_ENABLED {
-        info!(
-            "Enabling validation layers {}",
-            VALIDATION_LAYER.to_str().unwrap()
-        );
-        vec![VALIDATION_LAYER.as_ptr()]
-    } else {
-        Vec::new()
-    };
-
-    let mut extensions = ash_window::enumerate_required_extensions(
-        surface_provider_resource.provider.display_handle(),
-    )?
-    .to_vec();
-
-    if VALIDATION_ENABLED {
-        extensions.push(debug_utils::NAME.as_ptr());
-    }
-
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
-    {
-        info!("Enabling apple portability extensions");
-        extensions.push(ash::khr::portability_enumeration::NAME.as_ptr());
-        extensions.push(ash::khr::get_physical_device_properties2::NAME.as_ptr());
-    }
-
-    let create_flags = if cfg!(any(target_os = "macos", target_os = "ios")) {
-        vk::InstanceCreateFlags::ENUMERATE_PORTABILITY_KHR
-    } else {
-        vk::InstanceCreateFlags::default()
-    };
-
-    let mut create_info = vk::InstanceCreateInfo::default()
-        .application_info(&app_info)
-        .enabled_layer_names(&enabled_layers)
-        .enabled_extension_names(&extensions)
-        .flags(create_flags);
-
-    let mut debug_info = get_debug_messenger_create_info();
-    if VALIDATION_ENABLED {
-        create_info = create_info.push_next(&mut debug_info);
-    }
-
-    let instance: Instance = unsafe { entry.create_instance(&create_info, None)? };
-
-    let mut debug_messenger = None;
-    if VALIDATION_ENABLED {
-        let debug_utils_loader = debug_utils::Instance::new(&entry, &instance);
-        debug_messenger =
-            unsafe { Some(debug_utils_loader.create_debug_utils_messenger(&debug_info, None)?) };
-    }
-
-    commands.insert_singleton(VulkanInstance {
-        entry,
-        instance,
-        debug_messenger,
-    });
-
-    Ok(())
 }
 
 fn get_debug_messenger_create_info<'a>() -> vk::DebugUtilsMessengerCreateInfoEXT<'a> {
@@ -190,18 +206,19 @@ extern "system" fn debug_callback(
     vk::FALSE
 }
 
-pub fn destroy_instance(instance: Single<&VulkanInstance>, mut commands: Commands) {
-    info!("Destroying vulkan instance");
-    if let Some(debug_messenger) = instance.debug_messenger {
-        unsafe {
-            let debug_utils_loader = debug_utils::Instance::new(&instance.entry, &instance);
-            debug_utils_loader.destroy_debug_utils_messenger(debug_messenger, None);
-        }
-    }
+pub fn create_instance(
+    target: Single<&PresentTarget>,
+    app_info: Single<&AppInfo>,
+    settings: Single<&RendererSettings>,
+    mut commands: Commands,
+) -> Result<(), RendererError> {
+    let instance = Instance::new(target.display_handle(), &app_info, &settings)?;
+    info!("Instance extensions enabled: {:?}", instance.extensions);
+    commands.insert_singleton(instance);
 
-    unsafe {
-        instance.destroy_instance(None);
-    }
+    Ok(())
+}
 
-    commands.remove_singleton::<VulkanInstance>();
+pub fn destroy_instance(mut commands: Commands) {
+    commands.remove_singleton::<Instance>();
 }

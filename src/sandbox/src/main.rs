@@ -1,5 +1,5 @@
 use flux_ecs::World;
-use flux_renderer::{PresentTarget, SurfaceProvider};
+use flux_renderer::{AppInfo, AppVersion, PresentTarget, RendererSettings, SurfaceProvider};
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::EventLoop;
 use winit::raw_window_handle::{
@@ -42,7 +42,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     world.insert_singleton(surface_provider_resource);
 
-    flux_renderer::setup(&mut world);
+    flux_renderer::setup(
+        &mut world,
+        AppInfo {
+            name: "Flux Sandbox".to_owned(),
+            version: AppVersion {
+                major: 0,
+                minor: 1,
+                patch: 0,
+            },
+        },
+        RendererSettings::default(),
+    );
     let mut init = flux_renderer::startup_schedule();
     let mut render = flux_renderer::render_schedule();
     let mut destroy = flux_renderer::shutdown_schedule();

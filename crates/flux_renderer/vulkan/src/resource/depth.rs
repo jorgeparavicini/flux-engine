@@ -1,4 +1,4 @@
-use crate::device::instance::VulkanInstance;
+use crate::device::instance::Instance;
 use crate::device::logical::Device;
 use crate::device::selection::PhysicalDevice;
 use crate::error::RendererError;
@@ -18,7 +18,7 @@ pub struct DepthBuffers {
 }
 
 pub fn create_depth_buffers(
-    instance: Single<&VulkanInstance>,
+    instance: Single<&Instance>,
     physical_device: Single<&PhysicalDevice>,
     device: Single<&Device>,
     swapchain: Single<&Swapchain>,
@@ -59,10 +59,7 @@ pub fn create_depth_buffers(
     Ok(())
 }
 
-fn get_depth_format(
-    instance: &VulkanInstance,
-    physical_device: &PhysicalDevice,
-) -> Option<vk::Format> {
+fn get_depth_format(instance: &Instance, physical_device: &PhysicalDevice) -> Option<vk::Format> {
     let candidates = [
         vk::Format::D32_SFLOAT_S8_UINT,
         vk::Format::D32_SFLOAT,
@@ -79,7 +76,7 @@ fn get_depth_format(
 }
 
 fn get_supported_format(
-    instance: &VulkanInstance,
+    instance: &Instance,
     physical_device: &PhysicalDevice,
     candidates: &[vk::Format],
     tiling: vk::ImageTiling,

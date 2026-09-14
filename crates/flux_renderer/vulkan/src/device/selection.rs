@@ -1,4 +1,4 @@
-use crate::device::instance::VulkanInstance;
+use crate::device::instance::Instance;
 use crate::error::RendererError;
 use crate::present::surface::VulkanSurface;
 use ash::{khr, vk};
@@ -86,7 +86,7 @@ impl Deref for PhysicalDevice {
 }
 
 pub fn create_physical_device(
-    instance: Single<&VulkanInstance>,
+    instance: Single<&Instance>,
     surface: Single<&VulkanSurface>,
     device_requirements: Option<Single<&DeviceRequirements>>,
     mut commands: Commands,
@@ -106,7 +106,7 @@ pub fn create_physical_device(
         .iter()
         .map(|&device| {
             evaluate_physical_device(
-                &instance.entry,
+                instance.entry(),
                 &instance,
                 device,
                 **surface,
