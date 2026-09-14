@@ -1,4 +1,5 @@
 use crate::device::logical::Device;
+use crate::error::RendererError;
 use crate::pipeline::graphics::Pipeline;
 use crate::present::swapchain::Swapchain;
 use crate::resource::buffer::{UniformBufferObject, UniformBuffers};
@@ -19,7 +20,7 @@ pub fn create_descriptors(
     swapchain: Single<&Swapchain>,
     uniform_buffer: Single<&UniformBuffers>,
     mut commands: Commands,
-) -> Result<(), vk::Result> {
+) -> Result<(), RendererError> {
     let pool = create_descriptor_pool(&device, &swapchain)?;
     let sets = create_descriptor_sets(&device, &pipeline, &swapchain, pool, &uniform_buffer)?;
 
@@ -89,7 +90,7 @@ pub fn destroy_descriptors(
     device: Single<&Device>,
     descriptors: Single<&Descriptors>,
     mut commands: Commands,
-) -> Result<(), vk::Result> {
+) -> Result<(), RendererError> {
     debug!("Destroying descriptor pool");
     unsafe {
         device.destroy_descriptor_pool(descriptors.descriptor_pool, None);

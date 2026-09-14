@@ -1,10 +1,11 @@
 use crate::device::logical::Device;
+use crate::error::RendererError;
 use crate::present::swapchain::Swapchain;
 use ash::vk;
 use flux_ecs::Commands;
 use flux_ecs::Single;
-use std::ops::Deref;
 use std::io;
+use std::ops::Deref;
 // TODO: Error handling is just a placeholder, needs to be improved
 
 #[repr(C)]
@@ -35,11 +36,15 @@ pub fn create_pipeline(
     device: Single<&Device>,
     swapchain: Single<&Swapchain>,
     mut commands: Commands,
-) -> Result<(), vk::Result> {
-    let vertex_shader_module =
-        create_shader_module(&device, &include_bytes!(concat!(env!("OUT_DIR"), "/shader.vert.spv"))[..])?;
-    let frag_shader_module =
-        create_shader_module(&device, &include_bytes!(concat!(env!("OUT_DIR"), "/shader.frag.spv"))[..])?;
+) -> Result<(), RendererError> {
+    let vertex_shader_module = create_shader_module(
+        &device,
+        &include_bytes!(concat!(env!("OUT_DIR"), "/shader.vert.spv"))[..],
+    )?;
+    let frag_shader_module = create_shader_module(
+        &device,
+        &include_bytes!(concat!(env!("OUT_DIR"), "/shader.frag.spv"))[..],
+    )?;
 
     let vert_stage = vk::PipelineShaderStageCreateInfo::default()
         .stage(vk::ShaderStageFlags::VERTEX)

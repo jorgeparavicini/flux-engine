@@ -1,4 +1,5 @@
 use crate::device::instance::VulkanInstance;
+use crate::error::RendererError;
 use ash::khr::surface;
 use ash::vk;
 use flux_ecs::Commands;
@@ -24,7 +25,7 @@ pub fn create_surface(
     surface_provider_resource: Single<&PresentTarget>,
     instance: Single<&VulkanInstance>,
     mut commands: Commands,
-) -> Result<(), vk::Result> {
+) -> Result<(), RendererError> {
     info!("Creating vulkan surface");
     let surface = unsafe {
         ash_window::create_surface(

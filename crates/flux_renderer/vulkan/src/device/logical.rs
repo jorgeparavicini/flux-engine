@@ -1,5 +1,6 @@
 use crate::device::instance::VulkanInstance;
 use crate::device::selection::{DeviceRequirements, PhysicalDevice};
+use crate::error::RendererError;
 use ash::vk;
 use flux_ecs::Commands;
 use flux_ecs::Single;
@@ -31,7 +32,7 @@ pub fn create_logical_device(
     physical_device: Single<&PhysicalDevice>,
     device_requirements: Option<Single<&DeviceRequirements>>,
     mut commands: Commands,
-) -> Result<(), vk::Result> {
+) -> Result<(), RendererError> {
     info!(
         "Creating logical device for physical device: {:?}",
         *physical_device

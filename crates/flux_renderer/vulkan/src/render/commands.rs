@@ -1,4 +1,5 @@
 use crate::device::logical::Device;
+use crate::error::RendererError;
 use crate::present::swapchain::Swapchain;
 use ash::vk;
 use flux_ecs::Commands;
@@ -15,7 +16,7 @@ pub struct CommandPools {
 pub fn create_command_pools(
     device: Single<&Device>,
     mut commands: Commands,
-) -> Result<(), vk::Result> {
+) -> Result<(), RendererError> {
     debug!("Creating command pools");
 
     let info = vk::CommandPoolCreateInfo::default()
@@ -69,7 +70,7 @@ pub fn create_command_buffer(
     command_pools: Single<&CommandPools>,
     swapchain: Single<&Swapchain>,
     mut commands: Commands,
-) -> Result<(), vk::Result> {
+) -> Result<(), RendererError> {
     debug!("Creating command buffer");
 
     let allocate_info = vk::CommandBufferAllocateInfo::default()

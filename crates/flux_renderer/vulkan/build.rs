@@ -24,7 +24,10 @@ fn main() {
             .compile_into_spirv(&source, kind, file_name, "main", None)
             .unwrap_or_else(|e| panic!("{e}"));
 
-        fs::write(out_dir.join(format!("{file_name}.spv")), artifact.as_binary_u8())
-            .unwrap_or_else(|e| panic!("failed to write {file_name}.spv: {e}"));
+        fs::write(
+            out_dir.join(format!("{file_name}.spv")),
+            artifact.as_binary_u8(),
+        )
+        .unwrap_or_else(|e| panic!("failed to write {file_name}.spv: {e}"));
     }
 }

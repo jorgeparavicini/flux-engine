@@ -1,6 +1,7 @@
 use crate::device::instance::VulkanInstance;
 use crate::device::logical::Device;
 use crate::device::selection::PhysicalDevice;
+use crate::error::RendererError;
 use crate::present::swapchain::Swapchain;
 use crate::resource::image::{create_image, create_image_view};
 use ash::vk;
@@ -22,7 +23,7 @@ pub fn create_depth_buffers(
     device: Single<&Device>,
     swapchain: Single<&Swapchain>,
     mut commands: Commands,
-) -> Result<(), vk::Result> {
+) -> Result<(), RendererError> {
     debug!("Creating depth buffers");
 
     let depth_format = get_depth_format(&instance, &physical_device).unwrap();

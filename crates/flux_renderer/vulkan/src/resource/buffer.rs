@@ -1,6 +1,7 @@
 use crate::device::instance::VulkanInstance;
 use crate::device::logical::Device;
 use crate::device::selection::PhysicalDevice;
+use crate::error::RendererError;
 use crate::present::swapchain::Swapchain;
 use crate::render::commands::CommandPools;
 use crate::resource::image::get_memory_type_index;
@@ -70,7 +71,7 @@ pub fn create_vertex_buffer(
     device: Single<&Device>,
     command_pools: Single<&CommandPools>,
     mut commands: Commands,
-) -> Result<(), vk::Result> {
+) -> Result<(), RendererError> {
     debug!("Creating vertex buffer");
 
     let size = (size_of::<Vertex>() * VERTICES.len()) as u64;
@@ -123,7 +124,7 @@ pub fn create_index_buffer(
     device: Single<&Device>,
     command_pools: Single<&CommandPools>,
     mut commands: Commands,
-) -> Result<(), vk::Result> {
+) -> Result<(), RendererError> {
     debug!("Creating index buffer");
 
     let indices: [u32; 3] = [0, 1, 2];
@@ -177,7 +178,7 @@ pub fn create_uniform_buffer(
     device: Single<&Device>,
     swapchain: Single<&Swapchain>,
     mut commands: Commands,
-) -> Result<(), vk::Result> {
+) -> Result<(), RendererError> {
     debug!("Creating uniform buffer");
 
     let mut buffers = UniformBuffers {

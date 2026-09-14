@@ -1,4 +1,5 @@
 use crate::device::instance::VulkanInstance;
+use crate::error::RendererError;
 use crate::present::surface::VulkanSurface;
 use ash::{khr, vk};
 use flux_ecs::Commands;
@@ -6,7 +7,7 @@ use flux_ecs::Single;
 use log::{debug, info};
 use std::collections::HashSet;
 use std::ffi::CStr;
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::ops::Deref;
 use thiserror::Error;
 
@@ -57,15 +58,6 @@ pub enum SuitabilityError {
     },
 }
 
-#[derive(Error, Debug)]
-pub struct NoPhysicalDevicesFoundError;
-
-impl Display for NoPhysicalDevicesFoundError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "No suitable physical device found")
-    }
-}
-
 #[derive(flux_ecs::Component)]
 pub struct PhysicalDevice {
     pub physical_device: vk::PhysicalDevice,
@@ -98,12 +90,12 @@ pub fn create_physical_device(
     surface: Single<&VulkanSurface>,
     device_requirements: Option<Single<&DeviceRequirements>>,
     mut commands: Commands,
-) -> Result<(), NoPhysicalDevicesFoundError> {
+) -> Result<(), RendererError> {
     info!("Selecting a physical device");
     let physical_devices = unsafe {
         instance
             .enumerate_physical_devices()
-            .or(Err(NoPhysicalDevicesFoundError))?
+            .or(Err(RendererError::NoSuitableDevice))?
     };
 
     let device_requirements = device_requirements
@@ -129,7 +121,7 @@ pub fn create_physical_device(
             }
         })
         .max_by_key(|evaluation| evaluation.score)
-        .ok_or(NoPhysicalDevicesFoundError)?;
+        .ok_or(RendererError::NoSuitableDevice)?;
 
     info!(
         "Best physical device found: {0:?}",

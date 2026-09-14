@@ -1,5 +1,6 @@
 use crate::device::instance::VulkanInstance;
 use crate::device::logical::Device;
+use crate::error::RendererError;
 use crate::pipeline::descriptors::Descriptors;
 use crate::pipeline::graphics::Pipeline;
 use crate::present::swapchain::Swapchain;
@@ -41,7 +42,7 @@ pub fn create_sync_objects(
     device: Single<&Device>,
     swapchain: Single<&Swapchain>,
     mut commands: Commands,
-) -> Result<(), vk::Result> {
+) -> Result<(), RendererError> {
     let semaphore_info = vk::SemaphoreCreateInfo::default();
     let fence_info = vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED);
 
@@ -87,7 +88,7 @@ pub fn render(
     mut sync_objects: Single<&mut SyncObjects>,
     mut frame_data: Single<&mut FrameData>,
     mut commands: Commands,
-) -> Result<(), vk::Result> {
+) -> Result<(), RendererError> {
     unsafe {
         device.wait_for_fences(
             &[sync_objects.in_flight_fences[frame_data.frame_index]],
@@ -110,7 +111,7 @@ pub fn render(
     let image_index = match next_image_result {
         Ok((image_index, _)) => image_index as usize,
         Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => return Ok(()), // TODO Recreate swapchain
-        Err(e) => return Err(e),
+        Err(e) => return Err(e.into()),
     };
 
     if !sync_objects.images_in_flight[image_index].is_null() {
@@ -214,7 +215,7 @@ pub fn destroy_sync_objects(
     commands.remove_singleton::<SyncObjects>();
 }
 
-pub fn wait_for_device_idle(device: Single<&Device>) -> Result<(), vk::Result> {
+pub fn wait_for_device_idle(device: Single<&Device>) -> Result<(), RendererError> {
     unsafe { device.device_wait_idle()? }
 
     Ok(())

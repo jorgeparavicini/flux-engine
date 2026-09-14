@@ -1,6 +1,7 @@
 use crate::device::instance::VulkanInstance;
 use crate::device::logical::Device;
 use crate::device::selection::PhysicalDevice;
+use crate::error::RendererError;
 use crate::present::surface::VulkanSurface;
 use ash::{khr, vk};
 use flux_ecs::Commands;
@@ -34,7 +35,7 @@ pub fn create_swapchain(
     surface: Single<&VulkanSurface>,
     surface_provider: Single<&PresentTarget>,
     mut commands: Commands,
-) -> Result<(), vk::Result> {
+) -> Result<(), RendererError> {
     debug!("Creating swapchain");
 
     let surface_loader = khr::surface::Instance::new(&instance.entry, &instance);

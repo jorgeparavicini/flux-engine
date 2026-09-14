@@ -1,3 +1,4 @@
+use crate::error::RendererError;
 use ash::ext::debug_utils;
 use ash::vk::DebugUtilsMessengerEXT;
 use ash::{Instance, vk};
@@ -44,7 +45,7 @@ pub fn create_instance(
     surface_provider_resource: Single<&PresentTarget>,
     renderer_settings: Option<Single<&RendererSettings>>,
     mut commands: Commands,
-) -> Result<(), vk::Result> {
+) -> Result<(), RendererError> {
     info!("Creating the vulkan instance");
     let entry = ash::Entry::linked();
 
