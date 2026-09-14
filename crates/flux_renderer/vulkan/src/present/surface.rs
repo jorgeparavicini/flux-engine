@@ -1,4 +1,4 @@
-use crate::instance::VulkanInstance;
+use crate::device::instance::VulkanInstance;
 use ash::khr::surface;
 use ash::vk;
 use flux_ecs::Commands;

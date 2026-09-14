@@ -1,7 +1,8 @@
-use crate::device::{Device, PhysicalDevice};
-use crate::image::{create_image, create_image_view};
-use crate::instance::VulkanInstance;
-use crate::swapchain::Swapchain;
+use crate::device::instance::VulkanInstance;
+use crate::device::logical::Device;
+use crate::device::selection::PhysicalDevice;
+use crate::present::swapchain::Swapchain;
+use crate::resource::image::{create_image, create_image_view};
 use ash::vk;
 use flux_ecs::Commands;
 use flux_ecs::Single;

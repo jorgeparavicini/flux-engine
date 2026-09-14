@@ -1,7 +1,7 @@
-use crate::buffers::{UniformBufferObject, UniformBuffers};
-use crate::device::Device;
-use crate::pipeline::Pipeline;
-use crate::swapchain::Swapchain;
+use crate::device::logical::Device;
+use crate::pipeline::graphics::Pipeline;
+use crate::present::swapchain::Swapchain;
+use crate::resource::buffer::{UniformBufferObject, UniformBuffers};
 use ash::vk;
 use flux_ecs::Commands;
 use flux_ecs::Single;

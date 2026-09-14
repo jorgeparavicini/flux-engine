@@ -1,5 +1,6 @@
-use crate::device::{Device, PhysicalDevice};
-use crate::instance::VulkanInstance;
+use crate::device::instance::VulkanInstance;
+use crate::device::logical::Device;
+use crate::device::selection::PhysicalDevice;
 use ash::vk;
 
 pub fn create_image(

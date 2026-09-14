@@ -1,8 +1,9 @@
-use crate::command_pool::CommandPools;
-use crate::device::{Device, PhysicalDevice};
-use crate::image::get_memory_type_index;
-use crate::instance::VulkanInstance;
-use crate::swapchain::Swapchain;
+use crate::device::instance::VulkanInstance;
+use crate::device::logical::Device;
+use crate::device::selection::PhysicalDevice;
+use crate::present::swapchain::Swapchain;
+use crate::render::commands::CommandPools;
+use crate::resource::image::get_memory_type_index;
 use ash::vk;
 use flux_ecs::Commands;
 use flux_ecs::Single;

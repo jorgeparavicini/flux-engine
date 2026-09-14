@@ -1,7 +1,8 @@
-use crate::buffers::{copy_buffer, create_buffer};
-use crate::command_pool::CommandPools;
-use crate::device::{Device, PhysicalDevice};
-use crate::instance::VulkanInstance;
+use crate::device::instance::VulkanInstance;
+use crate::device::logical::Device;
+use crate::device::selection::PhysicalDevice;
+use crate::render::commands::CommandPools;
+use crate::resource::buffer::{copy_buffer, create_buffer};
 use ash::vk;
 use flux_ecs::Commands;
 use flux_ecs::Query;
