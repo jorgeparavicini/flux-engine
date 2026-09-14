@@ -131,3 +131,6 @@ Temporary Items
 # Local working docs for the renderer rework, not tracked
 crates/flux_renderer/DESIGN.md
 crates/flux_renderer/IMPLEMENTATION.md
+
+# SPIR-V is a build artifact; sources are the .vert/.frag files
+*.spv

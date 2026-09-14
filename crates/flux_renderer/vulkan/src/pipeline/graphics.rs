@@ -4,7 +4,7 @@ use ash::vk;
 use flux_ecs::Commands;
 use flux_ecs::Single;
 use std::ops::Deref;
-use std::{io, slice};
+use std::io;
 // TODO: Error handling is just a placeholder, needs to be improved
 
 #[repr(C)]
@@ -37,9 +37,9 @@ pub fn create_pipeline(
     mut commands: Commands,
 ) -> Result<(), vk::Result> {
     let vertex_shader_module =
-        create_shader_module(&device, &include_bytes!("../../shaders/vert.spv")[..])?;
+        create_shader_module(&device, &include_bytes!(concat!(env!("OUT_DIR"), "/shader.vert.spv"))[..])?;
     let frag_shader_module =
-        create_shader_module(&device, &include_bytes!("../../shaders/frag.spv")[..])?;
+        create_shader_module(&device, &include_bytes!(concat!(env!("OUT_DIR"), "/shader.frag.spv"))[..])?;
 
     let vert_stage = vk::PipelineShaderStageCreateInfo::default()
         .stage(vk::ShaderStageFlags::VERTEX)
@@ -206,53 +206,12 @@ pub fn create_pipeline(
 // TODO: Use Rust-GPU
 
 fn create_shader_module(device: &Device, code: &[u8]) -> Result<vk::ShaderModule, vk::Result> {
-    let code = read_spv(&mut io::Cursor::new(code))
+    let code = ash::util::read_spv(&mut io::Cursor::new(code))
         .map_err(|_| vk::Result::ERROR_INITIALIZATION_FAILED)?;
 
     let create_info = vk::ShaderModuleCreateInfo::default().code(&code);
     unsafe { device.create_shader_module(&create_info, None) }
 }
-
-fn read_spv<R: io::Read + io::Seek>(x: &mut R) -> io::Result<Vec<u32>> {
-    let size = x.seek(io::SeekFrom::End(0))?;
-    x.rewind()?;
-    if !size.is_multiple_of(4) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "SPIR-V size is not a multiple of 4",
-        ));
-    }
-
-    if size > usize::MAX as u64 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "SPIR-V size exceeds usize::MAX",
-        ));
-    }
-
-    let words = (size / 4) as usize;
-    let mut result = vec![0u32; words];
-    x.read_exact(unsafe {
-        slice::from_raw_parts_mut(result.as_mut_ptr().cast::<u8>(), words * 4)
-    })?;
-
-    const MAGIC_NUMBER: u32 = 0x0723_0203;
-    if !result.is_empty() && result[0] == MAGIC_NUMBER.swap_bytes() {
-        for word in &mut result {
-            *word = word.swap_bytes();
-        }
-    }
-
-    if result.is_empty() || result[0] != MAGIC_NUMBER {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "Invalid SPIR-V magic number",
-        ));
-    }
-
-    Ok(result)
-}
-
 pub fn destroy_pipeline(
     device: Single<&Device>,
     pipeline: Single<&Pipeline>,

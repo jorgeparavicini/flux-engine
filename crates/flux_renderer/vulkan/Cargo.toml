@@ -15,5 +15,8 @@ log = { workspace = true }
 raw-window-handle = { workspace = true }
 thiserror = { workspace = true }
 
+[build-dependencies]
+shaderc = { workspace = true }
+
 [lints]
 workspace = true
