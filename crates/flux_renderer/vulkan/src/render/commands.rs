@@ -29,6 +29,13 @@ pub fn create_command_pools(
 
     let transfer_pool = unsafe { device.create_command_pool(&info, None)? };
 
+    device
+        .debug_utils
+        .set_name(graphics_pool, "graphics command pool");
+    device
+        .debug_utils
+        .set_name(transfer_pool, "transfer command pool");
+
     commands.insert_singleton(CommandPools {
         graphics: graphics_pool,
         transfer: transfer_pool,
@@ -79,6 +86,11 @@ pub fn create_command_buffer(
         .command_buffer_count(swapchain.images.len() as u32);
 
     let command_buffers = unsafe { device.allocate_command_buffers(&allocate_info)? };
+    for (i, buffer) in command_buffers.iter().enumerate() {
+        device
+            .debug_utils
+            .set_name(*buffer, &format!("frame command buffer {i}"));
+    }
     commands.insert_singleton(CommandBuffers { command_buffers });
 
     Ok(())

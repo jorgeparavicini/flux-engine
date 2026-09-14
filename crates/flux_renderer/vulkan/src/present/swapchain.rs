@@ -113,6 +113,18 @@ pub fn create_swapchain(
         .map(|image| create_image_view(*image, surface_format.format, &device))
         .collect::<Vec<_>>();
 
+    device.debug_utils.set_name(swapchain, "main swapchain");
+    for (i, image) in images.iter().enumerate() {
+        device
+            .debug_utils
+            .set_name(*image, &format!("swapchain image {i}"));
+    }
+    for (i, view) in image_views.iter().enumerate() {
+        device
+            .debug_utils
+            .set_name(*view, &format!("swapchain image view {i}"));
+    }
+
     commands.insert_singleton(Swapchain {
         swapchain,
         images,

@@ -49,14 +49,27 @@ pub fn create_sync_objects(
     let mut image_available_semaphores = Vec::with_capacity(swapchain.max_frames_in_flight);
     let mut in_flight_fences = Vec::with_capacity(swapchain.max_frames_in_flight);
 
-    for _ in 0..swapchain.max_frames_in_flight {
-        image_available_semaphores.push(unsafe { device.create_semaphore(&semaphore_info, None)? });
-        in_flight_fences.push(unsafe { device.create_fence(&fence_info, None)? });
+    for i in 0..swapchain.max_frames_in_flight {
+        let semaphore = unsafe { device.create_semaphore(&semaphore_info, None)? };
+        device
+            .debug_utils
+            .set_name(semaphore, &format!("image available semaphore {i}"));
+        image_available_semaphores.push(semaphore);
+
+        let fence = unsafe { device.create_fence(&fence_info, None)? };
+        device
+            .debug_utils
+            .set_name(fence, &format!("in flight fence {i}"));
+        in_flight_fences.push(fence);
     }
 
     let mut render_finished_semaphores = Vec::with_capacity(swapchain.max_frames_in_flight);
-    for _ in 0..swapchain.images.len() {
-        render_finished_semaphores.push(unsafe { device.create_semaphore(&semaphore_info, None)? });
+    for i in 0..swapchain.images.len() {
+        let semaphore = unsafe { device.create_semaphore(&semaphore_info, None)? };
+        device
+            .debug_utils
+            .set_name(semaphore, &format!("render finished semaphore {i}"));
+        render_finished_semaphores.push(semaphore);
     }
 
     let images_in_flight = swapchain.images.iter().map(|_| vk::Fence::null()).collect();
@@ -239,6 +252,9 @@ fn record_command_buffer(
             .inheritance_info(&inheritance);
 
         device.begin_command_buffer(*command_buffer, &info)?;
+        let pass_label = device
+            .debug_utils
+            .cmd_label_scope(*command_buffer, "forward pass");
 
         let image_barrier_to_render = vk::ImageMemoryBarrier::default()
             .src_access_mask(vk::AccessFlags::empty()) // No need to wait for previous operations
@@ -350,6 +366,7 @@ fn record_command_buffer(
             &[image_barrier_to_present],
         );
 
+        drop(pass_label);
         device.end_command_buffer(*command_buffer)?;
 
         Ok(())

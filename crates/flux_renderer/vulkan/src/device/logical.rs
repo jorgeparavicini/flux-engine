@@ -1,3 +1,4 @@
+use crate::device::debug::DebugUtils;
 use crate::device::instance::Instance;
 use crate::device::selection::{DeviceRequirements, PhysicalDevice};
 use crate::error::RendererError;
@@ -17,6 +18,7 @@ pub struct Device {
     pub present_queue_index: u32,
     pub transfer_queue: vk::Queue,
     pub transfer_queue_index: u32,
+    pub debug_utils: DebugUtils,
 }
 
 impl Deref for Device {
@@ -86,6 +88,8 @@ pub fn create_logical_device(
     let graphics_queue = unsafe { device.get_device_queue(physical_device.indices.graphics, 0) };
     let present_queue = unsafe { device.get_device_queue(physical_device.indices.present, 0) };
     let transfer_queue = unsafe { device.get_device_queue(physical_device.indices.transfer, 0) };
+    let debug_utils = DebugUtils::new(&instance, &device);
+    debug_utils.set_name(device.handle(), "flux device");
 
     let logical_device = Device {
         device,
@@ -95,6 +99,7 @@ pub fn create_logical_device(
         present_queue_index: physical_device.indices.present,
         transfer_queue,
         transfer_queue_index: physical_device.indices.transfer,
+        debug_utils,
     };
 
     commands.insert_singleton(logical_device);

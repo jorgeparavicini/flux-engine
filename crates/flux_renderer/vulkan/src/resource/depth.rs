@@ -47,6 +47,14 @@ pub fn create_depth_buffers(
         vk::ImageAspectFlags::DEPTH,
     )?;
 
+    device.debug_utils.set_name(depth_image, "depth image");
+    device
+        .debug_utils
+        .set_name(depth_image_view, "depth image view");
+    device
+        .debug_utils
+        .set_name(depth_image_memory, "depth image memory");
+
     let depth_buffers = DepthBuffers {
         depth_image,
         depth_image_view,

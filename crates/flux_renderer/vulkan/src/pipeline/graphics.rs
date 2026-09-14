@@ -197,6 +197,16 @@ pub fn create_pipeline(
         device.destroy_shader_module(frag_shader_module, None);
     }
 
+    device
+        .debug_utils
+        .set_name(pipelines[0], "forward pipeline");
+    device
+        .debug_utils
+        .set_name(pipeline_layout, "forward pipeline layout");
+    device
+        .debug_utils
+        .set_name(descriptor_set_layout, "forward descriptor set layout");
+
     let pipeline = Pipeline {
         pipeline: pipelines[0],
         descriptor_set_layout,

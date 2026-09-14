@@ -1,3 +1,4 @@
+use crate::device::debug;
 use crate::error::RendererError;
 use ash::ext::debug_utils;
 use ash::vk;
@@ -5,10 +6,10 @@ use flux_ecs::Single;
 use flux_ecs::{Commands, Component};
 use flux_renderer_api::settings::{AppInfo, RendererSettings};
 use flux_renderer_api::surface::PresentTarget;
-use log::{debug, error, info, warn};
+use log::{info, warn};
 use raw_window_handle::RawDisplayHandle;
 use std::collections::HashSet;
-use std::ffi::{CStr, CString, c_void};
+use std::ffi::{CStr, CString};
 use std::ops::Deref;
 
 /// Oldest Vulkan version the renderer accepts. The frame path relies on 1.3
@@ -112,7 +113,7 @@ impl Instance {
         let debug = if extensions.debug_utils {
             let loader = debug_utils::Instance::new(&entry, &raw);
             let messenger = unsafe {
-                loader.create_debug_utils_messenger(&debug_messenger_create_info(), None)?
+                loader.create_debug_utils_messenger(&debug::debug_messenger_create_info(), None)?
             };
             Some((loader, messenger))
         } else {
@@ -263,7 +264,7 @@ fn create_raw_instance(
         .enabled_extension_names(&extension_ptrs)
         .flags(create_flags);
 
-    let mut debug_info = debug_messenger_create_info();
+    let mut debug_info = debug::debug_messenger_create_info();
     if extensions.debug_utils {
         create_info = create_info.push_next(&mut debug_info);
     }
@@ -301,46 +302,6 @@ impl Drop for Instance {
             self.raw.destroy_instance(None);
         }
     }
-}
-
-fn debug_messenger_create_info<'a>() -> vk::DebugUtilsMessengerCreateInfoEXT<'a> {
-    vk::DebugUtilsMessengerCreateInfoEXT::default()
-        .message_severity(
-            vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE
-                | vk::DebugUtilsMessageSeverityFlagsEXT::INFO
-                | vk::DebugUtilsMessageSeverityFlagsEXT::WARNING
-                | vk::DebugUtilsMessageSeverityFlagsEXT::ERROR,
-        )
-        .message_type(
-            vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
-                | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
-                | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE,
-        )
-        .pfn_user_callback(Some(debug_callback))
-}
-
-extern "system" fn debug_callback(
-    severity: vk::DebugUtilsMessageSeverityFlagsEXT,
-    type_: vk::DebugUtilsMessageTypeFlagsEXT,
-    data: *const vk::DebugUtilsMessengerCallbackDataEXT,
-    _: *mut c_void,
-) -> vk::Bool32 {
-    let data = unsafe { *data };
-    let message_id_name = unsafe { CStr::from_ptr(data.p_message_id_name).to_string_lossy() };
-    let message_id_number = data.message_id_number;
-    let message = unsafe { CStr::from_ptr(data.p_message).to_string_lossy() };
-
-    if severity == vk::DebugUtilsMessageSeverityFlagsEXT::VERBOSE {
-        debug!("{type_:?} [{message_id_name} ({message_id_number})]: {message}");
-    } else if severity == vk::DebugUtilsMessageSeverityFlagsEXT::INFO {
-        info!("{type_:?} [{message_id_name} ({message_id_number})]: {message}");
-    } else if severity == vk::DebugUtilsMessageSeverityFlagsEXT::WARNING {
-        warn!("{type_:?} [{message_id_name} ({message_id_number})]: {message}");
-    } else if severity == vk::DebugUtilsMessageSeverityFlagsEXT::ERROR {
-        error!("{type_:?} [{message_id_name} ({message_id_number})]: {message}");
-    }
-
-    vk::FALSE
 }
 
 pub fn create_instance(
