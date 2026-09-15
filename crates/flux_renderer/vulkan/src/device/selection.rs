@@ -1,79 +1,37 @@
-use crate::device::instance::Instance;
+use crate::device::capabilities::{
+    CapabilityGates, DeviceCapabilities, DeviceFeatures, parse_disabled, resolve_gates,
+};
+use crate::device::instance::{Instance, MIN_SUPPORTED_API, format_version};
 use crate::error::RendererError;
 use crate::present::surface::VulkanSurface;
+use ash::vk::{
+    PhysicalDeviceFeatures2, PhysicalDeviceVulkan12Features, PhysicalDeviceVulkan13Features,
+};
 use ash::{khr, vk};
 use flux_ecs::Commands;
 use flux_ecs::Single;
 use log::{debug, info};
-use std::collections::HashSet;
 use std::ffi::CStr;
 use std::fmt::Debug;
 use std::ops::Deref;
 use thiserror::Error;
 
-// TODO: This should probably not be called `DeviceRequirements` as it is also used to create the logical device
-#[derive(Debug, Clone, flux_ecs::Component)]
-pub struct DeviceRequirements {
-    pub extensions: Vec<&'static CStr>,
-    pub prefer_discrete_gpu: bool,
-}
-
-impl Default for DeviceRequirements {
-    fn default() -> Self {
-        Self {
-            extensions: vec![
-                khr::swapchain::NAME,
-                khr::dynamic_rendering::NAME,
-                #[cfg(any(target_os = "macos", target_os = "ios"))]
-                khr::portability_subset::NAME,
-            ],
-            prefer_discrete_gpu: true,
-        }
-    }
-}
-
-#[derive(Error, Debug)]
-pub enum SuitabilityError {
-    #[error("device {device:?} does not support required queue family: {queue_family:?}")]
-    MissingQueueFamily {
-        device: vk::PhysicalDevice,
-        queue_family: &'static str,
-    },
-    #[error("device {device:?} does not support required device extension: {extension:?}")]
-    MissingDeviceExtension {
-        device: vk::PhysicalDevice,
-        extension: &'static CStr,
-    },
-    #[error("could not get device extensions for device {device:?}")]
-    DeviceExtensionsNotFound { device: vk::PhysicalDevice },
-    #[error("device {device:?} does not support required feature {feature:?}")]
-    MissingDeviceFeatures {
-        device: vk::PhysicalDevice,
-        feature: &'static str,
-    },
-    #[error("device {device:?} does not support required swapchain surface: {surface:?}")]
-    SurfaceNotSupported {
-        device: vk::PhysicalDevice,
-        surface: vk::SurfaceKHR,
-    },
-}
+pub const REQUIRED_DEVICE_EXTENSIONS: &[&CStr] = &[khr::swapchain::NAME];
 
 #[derive(flux_ecs::Component)]
 pub struct PhysicalDevice {
-    pub physical_device: vk::PhysicalDevice,
-    pub indices: QueueFamilyIndices,
-    pub properties: vk::PhysicalDeviceProperties,
+    pub raw: vk::PhysicalDevice,
+    pub capabilities: DeviceCapabilities,
+    pub gates: CapabilityGates,
     pub formats: Vec<vk::SurfaceFormatKHR>,
     pub present_modes: Vec<vk::PresentModeKHR>,
-    pub name: String,
 }
 
 impl Debug for PhysicalDevice {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PhysicalDevice")
-            .field("physical_device", &self.name)
-            .field("indices", &self.indices)
-            .finish()
+            .field("name", &self.capabilities.name)
+            .finish_non_exhaustive()
     }
 }
 
@@ -81,219 +39,42 @@ impl Deref for PhysicalDevice {
     type Target = vk::PhysicalDevice;
 
     fn deref(&self) -> &Self::Target {
-        &self.physical_device
+        &self.raw
     }
 }
 
-pub fn create_physical_device(
-    instance: Single<&Instance>,
-    surface: Single<&VulkanSurface>,
-    device_requirements: Option<Single<&DeviceRequirements>>,
-    mut commands: Commands,
-) -> Result<(), RendererError> {
-    info!("Selecting a physical device");
-    let physical_devices = unsafe {
-        instance
-            .enumerate_physical_devices()
-            .or(Err(RendererError::NoSuitableDevice))?
-    };
-
-    let device_requirements = device_requirements
-        .map(|res| res.clone())
-        .unwrap_or_default();
-
-    let best_device_evaluation = physical_devices
-        .iter()
-        .map(|&device| {
-            evaluate_physical_device(
-                instance.entry(),
-                &instance,
-                device,
-                **surface,
-                &device_requirements,
-            )
-        })
-        .filter_map(|evaluation| match evaluation {
-            Ok(evaluation) => Some(evaluation),
-            Err(err) => {
-                debug!("Physical device is not suitable: {err}");
-                None
-            }
-        })
-        .max_by_key(|evaluation| evaluation.score)
-        .ok_or(RendererError::NoSuitableDevice)?;
-
-    info!(
-        "Best physical device found: {0:?}",
-        unsafe {
-            CStr::from_ptr(
-                best_device_evaluation
-                    .physical_device
-                    .properties
-                    .device_name
-                    .as_ptr(),
-            )
-        }
-        .to_str()
-        .unwrap()
-    );
-
-    commands.insert_singleton(best_device_evaluation.physical_device);
-
-    Ok(())
+struct QueriedDevice {
+    name: String,
+    device_type: vk::PhysicalDeviceType,
+    api_version: u32,
+    features: DeviceFeatures,
+    portability_subset: bool,
+    indices: Option<QueueFamilyIndices>,
+    has_swapchain_extension: bool,
+    formats: Vec<vk::SurfaceFormatKHR>,
+    present_modes: Vec<vk::PresentModeKHR>,
+    memory: vk::PhysicalDeviceMemoryProperties,
+    limits: vk::PhysicalDeviceLimits,
 }
 
-struct DeviceEvaluation {
-    score: u32,
-    physical_device: PhysicalDevice,
+#[derive(Debug, Error)]
+enum Rejection {
+    #[error("supports Vulkan {}, below the renderer's minimum {}",
+        format_version(*.version),
+        format_version(MIN_SUPPORTED_API)
+    )]
+    BelowMinimumVersion { version: u32 },
+    #[error("missing required feature {0}")]
+    MissingFeature(&'static str),
+    #[error("no queue family combination covers graphics, present, and transfer")]
+    MissingQueueFamilies,
+    #[error("missing required device extension {0}")]
+    MissingExtension(&'static str),
+    #[error("the surface offers no formats or present modes on this device")]
+    NoSurfaceSupport,
 }
 
-fn evaluate_physical_device(
-    entry: &ash::Entry,
-    instance: &ash::Instance,
-    physical_device: vk::PhysicalDevice,
-    surface: vk::SurfaceKHR,
-    device_requirements: &DeviceRequirements,
-) -> Result<DeviceEvaluation, SuitabilityError> {
-    let properties = unsafe {
-        let mut properties = vk::PhysicalDeviceProperties2::default();
-        instance.get_physical_device_properties2(physical_device, &mut properties);
-        properties.properties
-    };
-
-    let name = unsafe {
-        CStr::from_ptr(properties.device_name.as_ptr())
-            .to_str()
-            .unwrap_or("Unknown Device")
-            .to_string()
-    };
-
-    debug!("Checking suitability of physical device: {name}");
-
-    let indices = QueueFamilyIndices::get(entry, instance, physical_device, surface)?;
-    check_required_device_extensions(instance, physical_device, &device_requirements.extensions)?;
-    check_required_features(instance, physical_device)?;
-    let (formats, present_modes) =
-        query_swapchain_support(entry, instance, physical_device, surface)?;
-
-    let score = get_physical_device_score(&properties, &indices, device_requirements);
-
-    let physical_device = PhysicalDevice {
-        physical_device,
-        properties,
-        indices,
-        formats,
-        present_modes,
-        name,
-    };
-
-    Ok(DeviceEvaluation {
-        score,
-        physical_device,
-    })
-}
-
-fn check_required_device_extensions(
-    instance: &ash::Instance,
-    physical_device: vk::PhysicalDevice,
-    required_extensions: &Vec<&'static CStr>,
-) -> Result<(), SuitabilityError> {
-    debug!("Checking device for required extensions {required_extensions:?}",);
-
-    let available_extensions = unsafe {
-        instance
-            .enumerate_device_extension_properties(physical_device)
-            .or(Err(SuitabilityError::DeviceExtensionsNotFound {
-                device: physical_device,
-            }))?
-            .iter()
-            .map(|ext| {
-                CStr::from_ptr(ext.extension_name.as_ptr())
-                    .to_string_lossy()
-                    .into_owned()
-            })
-            .collect::<HashSet<String>>()
-    };
-
-    for required_extension in required_extensions {
-        if !available_extensions.contains(required_extension.to_str().unwrap()) {
-            return Err(SuitabilityError::MissingDeviceExtension {
-                device: physical_device,
-                extension: required_extension,
-            });
-        }
-    }
-
-    Ok(())
-}
-
-fn check_required_features(
-    instance: &ash::Instance,
-    physical_device: vk::PhysicalDevice,
-) -> Result<(), SuitabilityError> {
-    let mut dynamic_rendering_features = vk::PhysicalDeviceDynamicRenderingFeatures::default();
-
-    let mut features =
-        vk::PhysicalDeviceFeatures2::default().push_next(&mut dynamic_rendering_features);
-
-    unsafe {
-        instance.get_physical_device_features2(physical_device, &mut features);
-    }
-
-    if features.features.sampler_anisotropy != vk::TRUE {
-        return Err(SuitabilityError::MissingDeviceFeatures {
-            device: physical_device,
-            feature: "sampler_anisotropy",
-        });
-    }
-
-    if dynamic_rendering_features.dynamic_rendering != vk::TRUE {
-        return Err(SuitabilityError::MissingDeviceFeatures {
-            device: physical_device,
-            feature: "dynamic_rendering",
-        });
-    }
-
-    Ok(())
-}
-
-fn query_swapchain_support(
-    entry: &ash::Entry,
-    instance: &ash::Instance,
-    physical_device: vk::PhysicalDevice,
-    surface: vk::SurfaceKHR,
-) -> Result<(Vec<vk::SurfaceFormatKHR>, Vec<vk::PresentModeKHR>), SuitabilityError> {
-    let surface_loader = khr::surface::Instance::new(entry, instance);
-
-    let formats = unsafe {
-        surface_loader
-            .get_physical_device_surface_formats(physical_device, surface)
-            .or(Err(SuitabilityError::SurfaceNotSupported {
-                device: physical_device,
-                surface,
-            }))?
-    };
-
-    let present_modes = unsafe {
-        surface_loader
-            .get_physical_device_surface_present_modes(physical_device, surface)
-            .or(Err(SuitabilityError::SurfaceNotSupported {
-                device: physical_device,
-                surface,
-            }))?
-    };
-
-    if formats.is_empty() || present_modes.is_empty() {
-        return Err(SuitabilityError::SurfaceNotSupported {
-            device: physical_device,
-            surface,
-        });
-    }
-
-    Ok((formats, present_modes))
-}
-
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct QueueFamilyIndices {
     pub graphics: u32,
     pub present: u32,
@@ -306,7 +87,7 @@ impl QueueFamilyIndices {
         instance: &ash::Instance,
         physical_device: vk::PhysicalDevice,
         surface: vk::SurfaceKHR,
-    ) -> Result<Self, SuitabilityError> {
+    ) -> Option<Self> {
         let properties = unsafe {
             let len = instance.get_physical_device_queue_family_properties2_len(physical_device);
             let mut properties = vec![vk::QueueFamilyProperties2::default(); len];
@@ -314,17 +95,11 @@ impl QueueFamilyIndices {
             properties
         };
 
-        let graphics = properties
-            .iter()
-            .position(|p| {
-                p.queue_family_properties
-                    .queue_flags
-                    .contains(vk::QueueFlags::GRAPHICS)
-            })
-            .ok_or(SuitabilityError::MissingQueueFamily {
-                device: physical_device,
-                queue_family: "graphics",
-            })?;
+        let graphics = properties.iter().position(|p| {
+            p.queue_family_properties
+                .queue_flags
+                .contains(vk::QueueFlags::GRAPHICS)
+        })?;
 
         let transfer = properties
             .iter()
@@ -344,13 +119,9 @@ impl QueueFamilyIndices {
                     .get_physical_device_surface_support(physical_device, index as u32, surface)
                     .ok()
             })
-            .position(|index| index.is_some())
-            .ok_or(SuitabilityError::MissingQueueFamily {
-                device: physical_device,
-                queue_family: "present",
-            })?;
+            .position(|index| index.is_some())?;
 
-        Ok(QueueFamilyIndices {
+        Some(Self {
             graphics: graphics as u32,
             present: present as u32,
             transfer: transfer as u32,
@@ -358,28 +129,336 @@ impl QueueFamilyIndices {
     }
 }
 
-fn get_physical_device_score(
-    properties: &vk::PhysicalDeviceProperties,
-    indices: &QueueFamilyIndices,
-    device_requirements: &DeviceRequirements,
-) -> u32 {
-    let mut score = 0;
+pub fn create_physical_device(
+    instance: Single<&Instance>,
+    surface: Single<&VulkanSurface>,
+    mut commands: Commands,
+) -> Result<(), RendererError> {
+    info!("Selecting a physical device");
+    let disabled = parse_disabled(&std::env::var("FLUX_DISABLED_CAPABILITIES").unwrap_or_default());
 
-    if device_requirements.prefer_discrete_gpu {
-        if properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU {
-            score += 10000;
-        } else if properties.device_type == vk::PhysicalDeviceType::INTEGRATED_GPU {
-            score += 5000;
-        } else {
-            score += 1000;
+    let mut best: Option<(u32, vk::PhysicalDevice, DeviceCapabilities, QueriedDevice)> = None;
+    for physical_device in unsafe { instance.enumerate_physical_devices()? } {
+        let queried = query_device(&instance, physical_device, **surface)?;
+        match evaluate(&queried, instance.api_version()) {
+            Ok((capabilities, score)) => {
+                debug!("{} is suitable, score {score}", queried.name);
+                if best.as_ref().is_none_or(|(top, ..)| score > *top) {
+                    best = Some((score, physical_device, capabilities, queried));
+                }
+            }
+            Err(rejection) => info!("Rejecting {}: {rejection}", queried.name),
         }
     }
 
-    score += properties.limits.max_image_dimension2_d / 1000;
+    let Some((_, physical_device, capabilities, queried)) = best else {
+        return Err(RendererError::NoSuitableDevice);
+    };
 
-    if indices.graphics != u32::MAX && indices.present != u32::MAX {
-        score += 100;
+    let physical_device = PhysicalDevice {
+        raw: physical_device,
+        gates: resolve_gates(capabilities.features, &disabled),
+        capabilities,
+        formats: queried.formats,
+        present_modes: queried.present_modes,
+    };
+    info!(
+        "{}",
+        crate::device::capabilities::report(&physical_device.capabilities, physical_device.gates)
+    );
+    commands.insert_singleton(physical_device);
+
+    Ok(())
+}
+
+/// Gathers everything [`evaluate`] needs from one device. All Vulkan queries
+/// for selection happen here; no decisions do.
+fn query_device(
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
+    surface: vk::SurfaceKHR,
+) -> Result<QueriedDevice, RendererError> {
+    let properties = unsafe { instance.get_physical_device_properties(physical_device) };
+    let features = if properties.api_version >= MIN_SUPPORTED_API {
+        let mut vulkan_12_features = PhysicalDeviceVulkan12Features::default();
+        let mut vulkan_13_features = PhysicalDeviceVulkan13Features::default();
+        let mut device_features = PhysicalDeviceFeatures2::default()
+            .push_next(&mut vulkan_12_features)
+            .push_next(&mut vulkan_13_features);
+        unsafe { instance.get_physical_device_features2(physical_device, &mut device_features) };
+
+        DeviceFeatures {
+            sampler_anisotropy: device_features.features.sampler_anisotropy > 0,
+            descriptor_indexing: vulkan_12_features.descriptor_indexing > 0,
+            buffer_device_address: vulkan_12_features.buffer_device_address > 0,
+            timeline_semaphores: vulkan_12_features.timeline_semaphore > 0,
+            dynamic_rendering: vulkan_13_features.dynamic_rendering > 0,
+            synchronization2: vulkan_13_features.synchronization2 > 0,
+        }
+    } else {
+        DeviceFeatures::default()
+    };
+
+    let extension_properties =
+        unsafe { instance.enumerate_device_extension_properties(physical_device)? };
+    let extension_property_names = extension_properties
+        .iter()
+        .map(|p| {
+            p.extension_name_as_c_str()
+                .unwrap_or(c"<unknown extension property>")
+        })
+        .collect::<Vec<_>>();
+    let indices = QueueFamilyIndices::get(instance.entry(), instance, physical_device, surface);
+    let surface_instance = khr::surface::Instance::new(instance.entry(), instance);
+    let formats =
+        unsafe { surface_instance.get_physical_device_surface_formats(physical_device, surface)? };
+    let present_modes = unsafe {
+        surface_instance.get_physical_device_surface_present_modes(physical_device, surface)?
+    };
+    let memory = unsafe { instance.get_physical_device_memory_properties(physical_device) };
+
+    Ok(QueriedDevice {
+        name: properties
+            .device_name_as_c_str()
+            .unwrap_or(c"<unnamed device>")
+            .to_string_lossy()
+            .into_owned(),
+        device_type: properties.device_type,
+        api_version: properties.api_version,
+        limits: properties.limits,
+        features,
+        portability_subset: extension_property_names.contains(&khr::portability_subset::NAME),
+        has_swapchain_extension: REQUIRED_DEVICE_EXTENSIONS
+            .iter()
+            .all(|name| extension_property_names.contains(name)),
+        indices,
+        formats,
+        present_modes,
+        memory,
+    })
+}
+
+/// The floor filter and preference scoring. Pure: the tests are its contract.
+fn evaluate(
+    candidate: &QueriedDevice,
+    instance_api: u32,
+) -> Result<(DeviceCapabilities, u32), Rejection> {
+    let effective_api = candidate.api_version.min(instance_api);
+    if effective_api < MIN_SUPPORTED_API {
+        return Err(Rejection::BelowMinimumVersion {
+            version: candidate.api_version,
+        });
+    }
+    if !candidate.features.dynamic_rendering {
+        return Err(Rejection::MissingFeature("dynamic_rendering"));
+    }
+    let Some(queues) = candidate.indices else {
+        return Err(Rejection::MissingQueueFamilies);
+    };
+    if !candidate.has_swapchain_extension {
+        return Err(Rejection::MissingExtension("VK_KHR_swapchain"));
+    }
+    if candidate.formats.is_empty() || candidate.present_modes.is_empty() {
+        return Err(Rejection::NoSurfaceSupport);
     }
 
-    score
+    let mut score = match candidate.device_type {
+        vk::PhysicalDeviceType::DISCRETE_GPU => 1000,
+        vk::PhysicalDeviceType::INTEGRATED_GPU => 500,
+        vk::PhysicalDeviceType::VIRTUAL_GPU => 250,
+        vk::PhysicalDeviceType::CPU => 100,
+        _ => 0,
+    };
+    if queues.transfer != queues.graphics {
+        score += 50;
+    }
+
+    let capabilities = DeviceCapabilities {
+        name: candidate.name.clone(),
+        device_type: candidate.device_type,
+        api_version: effective_api,
+        features: candidate.features,
+        portability_subset: candidate.portability_subset,
+        memory: candidate.memory,
+        queues,
+        max_bound_descriptor_sets: candidate.limits.max_bound_descriptor_sets,
+        max_sampler_anisotropy: candidate.limits.max_sampler_anisotropy,
+    };
+
+    Ok((capabilities, score))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::device::capabilities::DeviceFeatures;
+
+    const INSTANCE_API: u32 = vk::API_VERSION_1_3;
+
+    /// A healthy 1.3 discrete GPU; individual tests break one thing at a time.
+    fn candidate() -> QueriedDevice {
+        QueriedDevice {
+            name: "test gpu".to_owned(),
+            device_type: vk::PhysicalDeviceType::DISCRETE_GPU,
+            api_version: vk::API_VERSION_1_3,
+            features: DeviceFeatures {
+                dynamic_rendering: true,
+                synchronization2: true,
+                timeline_semaphores: true,
+                buffer_device_address: true,
+                descriptor_indexing: true,
+                sampler_anisotropy: true,
+            },
+            portability_subset: false,
+            indices: Some(QueueFamilyIndices {
+                graphics: 0,
+                present: 0,
+                transfer: 1,
+            }),
+            has_swapchain_extension: true,
+            formats: vec![vk::SurfaceFormatKHR::default()],
+            present_modes: vec![vk::PresentModeKHR::FIFO],
+            memory: vk::PhysicalDeviceMemoryProperties::default(),
+            limits: vk::PhysicalDeviceLimits::default(),
+        }
+    }
+
+    fn score_of(candidate: &QueriedDevice) -> u32 {
+        evaluate(candidate, INSTANCE_API)
+            .expect("candidate must be suitable")
+            .1
+    }
+
+    // ── the floor: hard filters, each with a named rejection ───────────────
+
+    #[test]
+    fn a_healthy_device_is_accepted() {
+        assert!(evaluate(&candidate(), INSTANCE_API).is_ok());
+    }
+
+    #[test]
+    fn device_below_the_minimum_version_is_rejected() {
+        let mut c = candidate();
+        c.api_version = vk::make_api_version(0, 1, 2, 198);
+        assert!(matches!(
+            evaluate(&c, INSTANCE_API),
+            Err(Rejection::BelowMinimumVersion { .. })
+        ));
+    }
+
+    #[test]
+    fn missing_dynamic_rendering_is_rejected() {
+        let mut c = candidate();
+        c.features.dynamic_rendering = false;
+        assert!(matches!(
+            evaluate(&c, INSTANCE_API),
+            Err(Rejection::MissingFeature(_))
+        ));
+    }
+
+    #[test]
+    fn missing_queue_families_are_rejected() {
+        let mut c = candidate();
+        c.indices = None;
+        assert!(matches!(
+            evaluate(&c, INSTANCE_API),
+            Err(Rejection::MissingQueueFamilies)
+        ));
+    }
+
+    #[test]
+    fn missing_swapchain_extension_is_rejected() {
+        let mut c = candidate();
+        c.has_swapchain_extension = false;
+        assert!(matches!(
+            evaluate(&c, INSTANCE_API),
+            Err(Rejection::MissingExtension(_))
+        ));
+    }
+
+    #[test]
+    fn no_surface_formats_or_present_modes_is_rejected() {
+        let mut c = candidate();
+        c.formats.clear();
+        assert!(matches!(
+            evaluate(&c, INSTANCE_API),
+            Err(Rejection::NoSurfaceSupport)
+        ));
+
+        let mut c = candidate();
+        c.present_modes.clear();
+        assert!(matches!(
+            evaluate(&c, INSTANCE_API),
+            Err(Rejection::NoSurfaceSupport)
+        ));
+    }
+
+    // ── optional features degrade, they never reject ───────────────────────
+
+    #[test]
+    fn missing_optional_features_are_recorded_not_rejected() {
+        let mut c = candidate();
+        c.features.timeline_semaphores = false;
+        c.features.buffer_device_address = false;
+        let (capabilities, _) = evaluate(&c, INSTANCE_API).expect("optional features never reject");
+        assert!(!capabilities.features.timeline_semaphores);
+        assert!(!capabilities.features.buffer_device_address);
+        assert!(capabilities.features.dynamic_rendering);
+    }
+
+    // ── scoring: preferences, not filters ──────────────────────────────────
+
+    #[test]
+    fn discrete_outscores_integrated_outscores_software() {
+        let discrete = score_of(&candidate());
+
+        let mut c = candidate();
+        c.device_type = vk::PhysicalDeviceType::INTEGRATED_GPU;
+        let integrated = score_of(&c);
+
+        let mut c = candidate();
+        c.device_type = vk::PhysicalDeviceType::CPU;
+        let software = score_of(&c);
+
+        assert!(discrete > integrated, "discrete beats integrated");
+        assert!(integrated > software, "integrated beats software");
+    }
+
+    #[test]
+    fn a_software_rasterizer_is_still_acceptable() {
+        // lavapipe in CI reports PhysicalDeviceType::CPU; it must pass the floor.
+        let mut c = candidate();
+        c.device_type = vk::PhysicalDeviceType::CPU;
+        assert!(evaluate(&c, INSTANCE_API).is_ok());
+    }
+
+    // ── the record: measured values, not assumptions ───────────────────────
+
+    #[test]
+    fn effective_version_is_the_lower_of_device_and_instance() {
+        let mut c = candidate();
+        c.api_version = vk::make_api_version(0, 1, 4, 0);
+        let (capabilities, _) = evaluate(&c, INSTANCE_API).expect("1.4 device is fine");
+        assert_eq!(
+            capabilities.api_version, INSTANCE_API,
+            "a 1.4 device behind a 1.3 request is effectively 1.3"
+        );
+    }
+
+    #[test]
+    fn capabilities_carry_the_measured_identity() {
+        let mut c = candidate();
+        c.portability_subset = true;
+        let (capabilities, _) = evaluate(&c, INSTANCE_API).expect("suitable");
+        assert_eq!(capabilities.name, "test gpu");
+        assert!(capabilities.portability_subset);
+        assert_eq!(
+            capabilities.queues,
+            QueueFamilyIndices {
+                graphics: 0,
+                present: 0,
+                transfer: 1,
+            }
+        );
+    }
 }

@@ -1,6 +1,6 @@
 use crate::device::debug::DebugUtils;
 use crate::device::instance::Instance;
-use crate::device::selection::{DeviceRequirements, PhysicalDevice};
+use crate::device::selection::{PhysicalDevice, REQUIRED_DEVICE_EXTENSIONS};
 use crate::error::RendererError;
 use ash::vk;
 use flux_ecs::Commands;
@@ -32,7 +32,6 @@ impl Deref for Device {
 pub fn create_logical_device(
     instance: Single<&Instance>,
     physical_device: Single<&PhysicalDevice>,
-    device_requirements: Option<Single<&DeviceRequirements>>,
     mut commands: Commands,
 ) -> Result<(), RendererError> {
     info!(
@@ -41,9 +40,9 @@ pub fn create_logical_device(
     );
 
     let mut unique_indices = HashSet::new();
-    unique_indices.insert(physical_device.indices.graphics);
-    unique_indices.insert(physical_device.indices.present);
-    unique_indices.insert(physical_device.indices.transfer);
+    unique_indices.insert(physical_device.capabilities.queues.graphics);
+    unique_indices.insert(physical_device.capabilities.queues.present);
+    unique_indices.insert(physical_device.capabilities.queues.transfer);
 
     debug!(
         "Creating logical device with {} queue families",
@@ -59,15 +58,14 @@ pub fn create_logical_device(
         })
         .collect();
 
-    let requirements = device_requirements
-        .map(|res| res.clone())
-        .unwrap_or_default();
-
-    let extensions = requirements
-        .extensions
+    let mut extensions = REQUIRED_DEVICE_EXTENSIONS
         .iter()
         .map(|&e| e.as_ptr())
         .collect::<Vec<_>>();
+    // The spec requires enabling this extension whenever the device offers it.
+    if physical_device.capabilities.portability_subset {
+        extensions.push(ash::khr::portability_subset::NAME.as_ptr());
+    }
 
     let features = vk::PhysicalDeviceFeatures::default().sampler_anisotropy(true);
 
@@ -85,20 +83,23 @@ pub fn create_logical_device(
 
     let device = unsafe { instance.create_device(**physical_device, &create_info, None) }?;
 
-    let graphics_queue = unsafe { device.get_device_queue(physical_device.indices.graphics, 0) };
-    let present_queue = unsafe { device.get_device_queue(physical_device.indices.present, 0) };
-    let transfer_queue = unsafe { device.get_device_queue(physical_device.indices.transfer, 0) };
+    let graphics_queue =
+        unsafe { device.get_device_queue(physical_device.capabilities.queues.graphics, 0) };
+    let present_queue =
+        unsafe { device.get_device_queue(physical_device.capabilities.queues.present, 0) };
+    let transfer_queue =
+        unsafe { device.get_device_queue(physical_device.capabilities.queues.transfer, 0) };
     let debug_utils = DebugUtils::new(&instance, &device);
     debug_utils.set_name(device.handle(), "flux device");
 
     let logical_device = Device {
         device,
         graphics_queue,
-        graphics_queue_index: physical_device.indices.graphics,
+        graphics_queue_index: physical_device.capabilities.queues.graphics,
         present_queue,
-        present_queue_index: physical_device.indices.present,
+        present_queue_index: physical_device.capabilities.queues.present,
         transfer_queue,
-        transfer_queue_index: physical_device.indices.transfer,
+        transfer_queue_index: physical_device.capabilities.queues.transfer,
         debug_utils,
     };
 

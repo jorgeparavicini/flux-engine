@@ -15,7 +15,7 @@ use std::ops::Deref;
 /// Oldest Vulkan version the renderer accepts. The frame path relies on 1.3
 /// core features (dynamic rendering), and every supported platform provides
 /// at least 1.3.
-const MIN_SUPPORTED_API: u32 = vk::API_VERSION_1_3;
+pub(crate) const MIN_SUPPORTED_API: u32 = vk::API_VERSION_1_3;
 
 /// Newest Vulkan version the renderer requests. `apiVersion` is a promise
 /// that the application copes with everything the newer core version
@@ -272,7 +272,7 @@ fn create_raw_instance(
     Ok(unsafe { entry.create_instance(&create_info, None)? })
 }
 
-fn format_version(version: u32) -> String {
+pub(crate) fn format_version(version: u32) -> String {
     format!(
         "{}.{}.{}",
         vk::api_version_major(version),

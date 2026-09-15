@@ -1,4 +1,3 @@
-use crate::device::selection::SuitabilityError;
 use ash::vk;
 use thiserror::Error;
 
@@ -11,8 +10,6 @@ use thiserror::Error;
 pub enum RendererError {
     #[error(transparent)]
     Vulkan(#[from] vk::Result),
-    #[error(transparent)]
-    Suitability(#[from] SuitabilityError),
     #[error("no suitable physical device found")]
     NoSuitableDevice,
     #[error("Vulkan loader version {found} is below the renderer's minimum {minimum}")]

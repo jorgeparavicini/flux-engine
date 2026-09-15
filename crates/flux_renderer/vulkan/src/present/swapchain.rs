@@ -79,10 +79,11 @@ pub fn create_swapchain(
     }
 
     let mut queue_family_indices = vec![];
-    let image_sharing_mode = if physical_device.indices.graphics != physical_device.indices.present
+    let image_sharing_mode = if physical_device.capabilities.queues.graphics
+        != physical_device.capabilities.queues.present
     {
-        queue_family_indices.push(physical_device.indices.graphics);
-        queue_family_indices.push(physical_device.indices.present);
+        queue_family_indices.push(physical_device.capabilities.queues.graphics);
+        queue_family_indices.push(physical_device.capabilities.queues.present);
         vk::SharingMode::CONCURRENT
     } else {
         vk::SharingMode::EXCLUSIVE
