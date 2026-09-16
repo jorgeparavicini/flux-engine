@@ -169,13 +169,16 @@ pub fn create_uniform_buffer(
         buffers: Vec::with_capacity(swapchain.images.len()),
     };
 
-    for _ in 0..swapchain.images.len() {
+    for i in 0..swapchain.images.len() {
         let (uniform_buffer, uniform_buffer_memory) = create_buffer(
             &device,
             size_of::<UniformBufferObject>() as u64,
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
         )?;
+        device
+            .debug_utils
+            .set_name(uniform_buffer, &format!("uniform buffer {i}"));
 
         buffers.buffers.push(UniformBuffer {
             buffer: uniform_buffer,

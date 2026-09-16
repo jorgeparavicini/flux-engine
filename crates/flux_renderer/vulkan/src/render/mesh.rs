@@ -71,6 +71,21 @@ pub fn create_buffers(
                 .expect("Failed to create index buffer")
                 .unwrap_or((vk::Buffer::null(), vk::DeviceMemory::null()));
 
+        device
+            .debug_utils
+            .set_name(vertex_buffer, "mesh vertex buffer");
+        device
+            .debug_utils
+            .set_name(vertex_buffer_memory, "mesh vertex buffer memory");
+        if index_buffer != vk::Buffer::null() {
+            device
+                .debug_utils
+                .set_name(index_buffer, "mesh index buffer");
+            device
+                .debug_utils
+                .set_name(index_buffer_memory, "mesh index buffer memory");
+        }
+
         let num_indices = mesh
             .indices
             .as_ref()

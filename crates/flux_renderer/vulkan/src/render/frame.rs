@@ -332,7 +332,7 @@ fn record_command_buffer(
             device.cmd_bind_vertex_buffers(*command_buffer, 0, &[mesh.vertex_buffer], &[0]);
             device.cmd_bind_index_buffer(*command_buffer, mesh.index_buffer, 0, IndexType::UINT32);
 
-            device.cmd_draw(*command_buffer, mesh.num_indices, 1, 0, 0);
+            device.cmd_draw_indexed(*command_buffer, mesh.num_indices, 1, 0, 0, 0);
         });
 
         device.cmd_end_rendering(*command_buffer);
