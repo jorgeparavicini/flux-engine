@@ -1,4 +1,4 @@
-use crate::device::logical::Device;
+use crate::device::logical::RenderDevice;
 use crate::error::RendererError;
 use crate::pipeline::graphics::Pipeline;
 use crate::present::swapchain::Swapchain;
@@ -15,7 +15,7 @@ pub struct Descriptors {
 }
 
 pub fn create_descriptors(
-    device: Single<&Device>,
+    device: Single<&RenderDevice>,
     pipeline: Single<&Pipeline>,
     swapchain: Single<&Swapchain>,
     uniform_buffer: Single<&UniformBuffers>,
@@ -33,7 +33,7 @@ pub fn create_descriptors(
 }
 
 fn create_descriptor_pool(
-    device: &Device,
+    device: &RenderDevice,
     swapchain: &Swapchain,
 ) -> Result<vk::DescriptorPool, vk::Result> {
     let ubo_size = vk::DescriptorPoolSize::default()
@@ -53,7 +53,7 @@ fn create_descriptor_pool(
 }
 
 fn create_descriptor_sets(
-    device: &Device,
+    device: &RenderDevice,
     pipeline: &Pipeline,
     swapchain: &Swapchain,
     pool: vk::DescriptorPool,
@@ -87,7 +87,7 @@ fn create_descriptor_sets(
 }
 
 pub fn destroy_descriptors(
-    device: Single<&Device>,
+    device: Single<&RenderDevice>,
     descriptors: Single<&Descriptors>,
     mut commands: Commands,
 ) -> Result<(), RendererError> {

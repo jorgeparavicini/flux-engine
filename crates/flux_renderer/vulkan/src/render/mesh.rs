@@ -1,6 +1,4 @@
-use crate::device::instance::Instance;
-use crate::device::logical::Device;
-use crate::device::selection::PhysicalDevice;
+use crate::device::logical::RenderDevice;
 use crate::render::commands::CommandPools;
 use crate::resource::buffer::{copy_buffer, create_buffer};
 use ash::vk;
@@ -54,9 +52,7 @@ pub struct VulkanMesh {
 }
 
 pub fn create_buffers(
-    instance: Single<&Instance>,
-    physical_device: Single<&PhysicalDevice>,
-    device: Single<&Device>,
+    device: Single<&RenderDevice>,
     command_pools: Single<&CommandPools>,
     // TODO: Needs to be able to be generalized
     meshes: Query<&MeshComponent>,
@@ -67,11 +63,11 @@ pub fn create_buffers(
     meshes.for_each(|mesh| {
         let mesh = &mesh.0;
         let (vertex_buffer, vertex_buffer_memory) =
-            create_vertex_buffer(&instance, &physical_device, &device, &command_pools, mesh)
+            create_vertex_buffer(&device, &command_pools, mesh)
                 .expect("Failed to create vertex buffer");
 
         let (index_buffer, index_buffer_memory) =
-            create_index_buffer(&instance, &physical_device, &device, &command_pools, mesh)
+            create_index_buffer(&device, &command_pools, mesh)
                 .expect("Failed to create index buffer")
                 .unwrap_or((vk::Buffer::null(), vk::DeviceMemory::null()));
 
@@ -91,9 +87,7 @@ pub fn create_buffers(
 }
 
 fn create_vertex_buffer(
-    instance: &Instance,
-    physical_device: &PhysicalDevice,
-    device: &Device,
+    device: &RenderDevice,
     command_pools: &CommandPools,
     mesh: &Mesh<CoolVertex>,
 ) -> Result<(vk::Buffer, vk::DeviceMemory), vk::Result> {
@@ -102,8 +96,6 @@ fn create_vertex_buffer(
     let size = Mesh::<CoolVertex>::vertex_size() as u64 * mesh.vertices.len() as u64;
 
     let (staging_buffer, staging_buffer_memory) = create_buffer(
-        instance,
-        physical_device,
         device,
         size,
         vk::BufferUsageFlags::TRANSFER_SRC,
@@ -119,8 +111,6 @@ fn create_vertex_buffer(
     }
 
     let (vertex_buffer, vertex_buffer_memory) = create_buffer(
-        instance,
-        physical_device,
         device,
         size,
         vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
@@ -138,9 +128,7 @@ fn create_vertex_buffer(
 }
 
 fn create_index_buffer(
-    instance: &Instance,
-    physical_device: &PhysicalDevice,
-    device: &Device,
+    device: &RenderDevice,
     command_pools: &CommandPools,
     mesh: &Mesh<CoolVertex>,
 ) -> Result<Option<(vk::Buffer, vk::DeviceMemory)>, vk::Result> {
@@ -157,8 +145,6 @@ fn create_index_buffer(
     let size = size_of_val(indices);
 
     let (staging_buffer, staging_buffer_memory) = create_buffer(
-        instance,
-        physical_device,
         device,
         size as u64,
         vk::BufferUsageFlags::TRANSFER_SRC,
@@ -180,8 +166,6 @@ fn create_index_buffer(
     }
 
     let (index_buffer, index_buffer_memory) = create_buffer(
-        instance,
-        physical_device,
         device,
         size as u64,
         vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER,

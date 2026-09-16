@@ -1,5 +1,5 @@
 use crate::device::instance::Instance;
-use crate::device::logical::Device;
+use crate::device::logical::RenderDevice;
 use crate::error::RendererError;
 use crate::pipeline::descriptors::Descriptors;
 use crate::pipeline::graphics::Pipeline;
@@ -39,7 +39,7 @@ pub struct SyncObjects {
 }
 
 pub fn create_sync_objects(
-    device: Single<&Device>,
+    device: Single<&RenderDevice>,
     swapchain: Single<&Swapchain>,
     mut commands: Commands,
 ) -> Result<(), RendererError> {
@@ -91,7 +91,7 @@ pub struct FrameData {
 
 pub fn render(
     instance: Single<&Instance>,
-    device: Single<&Device>,
+    device: Single<&RenderDevice>,
     swapchain: Single<&Swapchain>,
     command_buffers_res: Single<&CommandBuffers>,
     depth_buffers: Single<&DepthBuffers>,
@@ -166,7 +166,7 @@ pub fn render(
     let in_flight_fence = sync_objects.in_flight_fences[frame_data.frame_index];
     unsafe {
         device.reset_fences(&[in_flight_fence])?;
-        device.queue_submit(device.graphics_queue, &[submit_info], in_flight_fence)?;
+        device.queue_submit(device.graphics.raw, &[submit_info], in_flight_fence)?;
     }
 
     let swapchains = &[swapchain.swapchain];
@@ -176,7 +176,7 @@ pub fn render(
         .swapchains(swapchains)
         .image_indices(image_indices);
 
-    let result = unsafe { swapchain_device.queue_present(device.present_queue, &present_info) };
+    let result = unsafe { swapchain_device.queue_present(device.present.raw, &present_info) };
 
     let changed = result == Ok(true) || result == Err(vk::Result::ERROR_OUT_OF_DATE_KHR);
 
@@ -192,16 +192,12 @@ pub fn render(
     Ok(())
 }
 
-pub fn wait_device_idle(device: Single<&Device>) {
-    unsafe {
-        device
-            .device_wait_idle()
-            .expect("Failed to wait device idle");
-    }
+pub fn wait_device_idle(device: Single<&RenderDevice>) {
+    device.wait_idle();
 }
 
 pub fn destroy_sync_objects(
-    device: Single<&Device>,
+    device: Single<&RenderDevice>,
     sync_objects: Single<&SyncObjects>,
     mut commands: Commands,
 ) {
@@ -228,14 +224,12 @@ pub fn destroy_sync_objects(
     commands.remove_singleton::<SyncObjects>();
 }
 
-pub fn wait_for_device_idle(device: Single<&Device>) -> Result<(), RendererError> {
-    unsafe { device.device_wait_idle()? }
-
-    Ok(())
+pub fn wait_for_device_idle(device: Single<&RenderDevice>) {
+    device.wait_idle();
 }
 
 fn record_command_buffer(
-    device: &Single<&Device>,
+    device: &Single<&RenderDevice>,
     command_buffer: &vk::CommandBuffer,
     swapchain: &Single<&Swapchain>,
     image_index: usize,

@@ -1,4 +1,4 @@
-use crate::device::logical::Device;
+use crate::device::logical::RenderDevice;
 use crate::error::RendererError;
 use crate::present::swapchain::Swapchain;
 use ash::vk;
@@ -33,7 +33,7 @@ impl Deref for Pipeline {
 }
 
 pub fn create_pipeline(
-    device: Single<&Device>,
+    device: Single<&RenderDevice>,
     swapchain: Single<&Swapchain>,
     mut commands: Commands,
 ) -> Result<(), RendererError> {
@@ -220,7 +220,10 @@ pub fn create_pipeline(
 
 // TODO: Use Rust-GPU
 
-fn create_shader_module(device: &Device, code: &[u8]) -> Result<vk::ShaderModule, vk::Result> {
+fn create_shader_module(
+    device: &RenderDevice,
+    code: &[u8],
+) -> Result<vk::ShaderModule, vk::Result> {
     let code = ash::util::read_spv(&mut io::Cursor::new(code))
         .map_err(|_| vk::Result::ERROR_INITIALIZATION_FAILED)?;
 
@@ -228,7 +231,7 @@ fn create_shader_module(device: &Device, code: &[u8]) -> Result<vk::ShaderModule
     unsafe { device.create_shader_module(&create_info, None) }
 }
 pub fn destroy_pipeline(
-    device: Single<&Device>,
+    device: Single<&RenderDevice>,
     pipeline: Single<&Pipeline>,
     mut commands: Commands,
 ) -> Result<(), vk::Result> {

@@ -18,6 +18,8 @@ pub fn take_validation_errors() -> Vec<String> {
     )
 }
 
+/// The messenger configuration used for both the persistent messenger and
+/// instance creation/destruction coverage via `pNext`.
 pub fn debug_messenger_create_info<'a>() -> vk::DebugUtilsMessengerCreateInfoEXT<'a> {
     vk::DebugUtilsMessengerCreateInfoEXT::default()
         .message_severity(
@@ -74,6 +76,9 @@ extern "system" fn debug_callback(
     vk::FALSE
 }
 
+/// Best-effort debug helpers: object naming and command-buffer labels.
+/// Every method is a no-op when the debug-utils extension is unavailable, so
+/// callers never need to check.
 pub struct DebugUtils {
     loader: Option<debug_utils::Device>,
 }
@@ -87,6 +92,9 @@ impl DebugUtils {
         Self { loader }
     }
 
+    /// Attaches a human-readable name to any Vulkan object; the name shows
+    /// up in captures and validation messages. Failures are logged, never
+    /// propagated.
     pub fn set_name<H: vk::Handle>(&self, handle: H, name: &str) {
         let Some(loader) = &self.loader else { return };
         let Ok(name) = CString::new(name) else { return };
@@ -99,6 +107,8 @@ impl DebugUtils {
         }
     }
 
+    /// Opens a named region in `cmd`; pair with [`Self::cmd_end_label`], or
+    /// prefer [`Self::cmd_label_scope`], which cannot be left unbalanced.
     pub fn cmd_begin_label(&self, cmd: vk::CommandBuffer, label: &str) {
         let Some(loader) = &self.loader else { return };
         let Ok(label) = CString::new(label) else {
@@ -113,6 +123,9 @@ impl DebugUtils {
         unsafe { loader.cmd_end_debug_utils_label(cmd) };
     }
 
+    /// Opens a named region that closes automatically when the returned
+    /// guard drops. Drop the guard before ending the command buffer.
+    #[must_use]
     pub fn cmd_label_scope(&self, cmd: vk::CommandBuffer, label: &str) -> LabelScope<'_> {
         self.cmd_begin_label(cmd, label);
         LabelScope {
@@ -122,6 +135,7 @@ impl DebugUtils {
     }
 }
 
+/// Guard for an open command-buffer label region; closes it on drop.
 pub struct LabelScope<'a> {
     cmd: vk::CommandBuffer,
     debug_utils: &'a DebugUtils,

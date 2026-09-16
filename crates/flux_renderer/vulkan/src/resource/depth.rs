@@ -1,6 +1,5 @@
 use crate::device::instance::Instance;
-use crate::device::logical::Device;
-use crate::device::selection::PhysicalDevice;
+use crate::device::logical::RenderDevice;
 use crate::error::RendererError;
 use crate::present::swapchain::Swapchain;
 use crate::resource::image::{create_image, create_image_view};
@@ -19,18 +18,15 @@ pub struct DepthBuffers {
 
 pub fn create_depth_buffers(
     instance: Single<&Instance>,
-    physical_device: Single<&PhysicalDevice>,
-    device: Single<&Device>,
+    device: Single<&RenderDevice>,
     swapchain: Single<&Swapchain>,
     mut commands: Commands,
 ) -> Result<(), RendererError> {
     debug!("Creating depth buffers");
 
-    let depth_format = get_depth_format(&instance, &physical_device).unwrap();
+    let depth_format = get_depth_format(&instance, device.physical).unwrap();
 
     let (depth_image, depth_image_memory) = create_image(
-        &instance,
-        &physical_device,
         &device,
         swapchain.extent.width,
         swapchain.extent.height,
@@ -67,7 +63,10 @@ pub fn create_depth_buffers(
     Ok(())
 }
 
-fn get_depth_format(instance: &Instance, physical_device: &PhysicalDevice) -> Option<vk::Format> {
+fn get_depth_format(
+    instance: &Instance,
+    physical_device: vk::PhysicalDevice,
+) -> Option<vk::Format> {
     let candidates = [
         vk::Format::D32_SFLOAT_S8_UINT,
         vk::Format::D32_SFLOAT,
@@ -85,14 +84,14 @@ fn get_depth_format(instance: &Instance, physical_device: &PhysicalDevice) -> Op
 
 fn get_supported_format(
     instance: &Instance,
-    physical_device: &PhysicalDevice,
+    physical_device: vk::PhysicalDevice,
     candidates: &[vk::Format],
     tiling: vk::ImageTiling,
     features: vk::FormatFeatureFlags,
 ) -> Option<vk::Format> {
     candidates.iter().cloned().find(|f| {
         let properties =
-            unsafe { instance.get_physical_device_format_properties(**physical_device, *f) };
+            unsafe { instance.get_physical_device_format_properties(physical_device, *f) };
 
         match tiling {
             vk::ImageTiling::LINEAR => properties.linear_tiling_features.contains(features),
@@ -103,7 +102,7 @@ fn get_supported_format(
 }
 
 pub fn destroy_depth_buffers(
-    device: Single<&Device>,
+    device: Single<&RenderDevice>,
     depth_buffers: Single<&DepthBuffers>,
     mut commands: Commands,
 ) {

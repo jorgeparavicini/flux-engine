@@ -18,6 +18,8 @@ use thiserror::Error;
 
 pub const REQUIRED_DEVICE_EXTENSIONS: &[&CStr] = &[khr::swapchain::NAME];
 
+/// The selected physical device and everything measured about it. Inserted
+/// by [`create_physical_device`]; device creation consumes it.
 #[derive(flux_ecs::Component)]
 pub struct PhysicalDevice {
     pub raw: vk::PhysicalDevice,
@@ -74,6 +76,8 @@ enum Rejection {
     NoSurfaceSupport,
 }
 
+/// The queue family index chosen for each kind of work. Families may
+/// coincide: on many devices one family serves all three roles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct QueueFamilyIndices {
     pub graphics: u32,
@@ -82,6 +86,10 @@ pub struct QueueFamilyIndices {
 }
 
 impl QueueFamilyIndices {
+    /// Picks a family for each role: any graphics-capable family, any
+    /// transfer-capable family (falling back to graphics), and the first
+    /// family that can present to `surface`. Returns `None` when no
+    /// combination covers all three.
     pub fn get(
         entry: &ash::Entry,
         instance: &ash::Instance,
@@ -95,38 +103,59 @@ impl QueueFamilyIndices {
             properties
         };
 
-        let graphics = properties.iter().position(|p| {
-            p.queue_family_properties
-                .queue_flags
-                .contains(vk::QueueFlags::GRAPHICS)
-        })?;
-
-        let transfer = properties
+        let flags: Vec<vk::QueueFlags> = properties
             .iter()
-            .position(|p| {
-                p.queue_family_properties
-                    .queue_flags
-                    .contains(vk::QueueFlags::TRANSFER)
-            })
-            .unwrap_or(graphics); // The graphics queue can also handle transfers
+            .map(|p| p.queue_family_properties.queue_flags)
+            .collect();
 
         let surface_loader = khr::surface::Instance::new(entry, instance);
-        let present = properties
-            .iter()
-            .enumerate()
-            .map(|(index, _)| unsafe {
-                surface_loader
-                    .get_physical_device_surface_support(physical_device, index as u32, surface)
-                    .ok()
+        let present_support: Vec<bool> = (0..properties.len())
+            .map(|index| {
+                matches!(
+                    unsafe {
+                        surface_loader.get_physical_device_surface_support(
+                            physical_device,
+                            index as u32,
+                            surface,
+                        )
+                    },
+                    Ok(true)
+                )
             })
-            .position(|index| index.is_some())?;
+            .collect();
 
-        Some(Self {
-            graphics: graphics as u32,
-            present: present as u32,
-            transfer: transfer as u32,
-        })
+        choose_families(&flags, &present_support)
     }
+}
+
+/// Selects the best suitable physical device, logging why each rejected
+/// candidate was passed over, and stores it as the [`PhysicalDevice`]
+/// singleton. Fails with [`RendererError::NoSuitableDevice`] when no device
+/// passes the floor.
+/// Picks a family per role from the queried family table: any graphics
+/// family, the first family that can present, and for transfer a family that
+/// does nothing else where one exists, so uploads can overlap rendering. The
+/// graphics family handles transfer otherwise.
+fn choose_families(
+    flags: &[vk::QueueFlags],
+    present_support: &[bool],
+) -> Option<QueueFamilyIndices> {
+    let graphics = flags
+        .iter()
+        .position(|f| f.contains(vk::QueueFlags::GRAPHICS))?;
+    let present = present_support.iter().position(|&supported| supported)?;
+    let dedicated_transfer = flags.iter().position(|f| {
+        f.contains(vk::QueueFlags::TRANSFER)
+            && !f.contains(vk::QueueFlags::GRAPHICS)
+            && !f.contains(vk::QueueFlags::COMPUTE)
+    });
+    let transfer = dedicated_transfer.unwrap_or(graphics);
+
+    Some(QueueFamilyIndices {
+        graphics: graphics as u32,
+        present: present as u32,
+        transfer: transfer as u32,
+    })
 }
 
 pub fn create_physical_device(
@@ -191,7 +220,7 @@ fn query_device(
             sampler_anisotropy: device_features.features.sampler_anisotropy > 0,
             descriptor_indexing: vulkan_12_features.descriptor_indexing > 0,
             buffer_device_address: vulkan_12_features.buffer_device_address > 0,
-            timeline_semaphores: vulkan_12_features.timeline_semaphore > 0,
+            timeline_semaphore: vulkan_12_features.timeline_semaphore > 0,
             dynamic_rendering: vulkan_13_features.dynamic_rendering > 0,
             synchronization2: vulkan_13_features.synchronization2 > 0,
         }
@@ -304,7 +333,7 @@ mod tests {
             features: DeviceFeatures {
                 dynamic_rendering: true,
                 synchronization2: true,
-                timeline_semaphores: true,
+                timeline_semaphore: true,
                 buffer_device_address: true,
                 descriptor_indexing: true,
                 sampler_anisotropy: true,
@@ -398,10 +427,10 @@ mod tests {
     #[test]
     fn missing_optional_features_are_recorded_not_rejected() {
         let mut c = candidate();
-        c.features.timeline_semaphores = false;
+        c.features.timeline_semaphore = false;
         c.features.buffer_device_address = false;
         let (capabilities, _) = evaluate(&c, INSTANCE_API).expect("optional features never reject");
-        assert!(!capabilities.features.timeline_semaphores);
+        assert!(!capabilities.features.timeline_semaphore);
         assert!(!capabilities.features.buffer_device_address);
         assert!(capabilities.features.dynamic_rendering);
     }
@@ -430,6 +459,47 @@ mod tests {
         let mut c = candidate();
         c.device_type = vk::PhysicalDeviceType::CPU;
         assert!(evaluate(&c, INSTANCE_API).is_ok());
+    }
+
+    // ── choose_families: role assignment over the family table ──────────────
+
+    const GFX: vk::QueueFlags = vk::QueueFlags::from_raw(
+        vk::QueueFlags::GRAPHICS.as_raw()
+            | vk::QueueFlags::COMPUTE.as_raw()
+            | vk::QueueFlags::TRANSFER.as_raw(),
+    );
+
+    #[test]
+    fn one_do_everything_family_serves_all_roles() {
+        let chosen = choose_families(&[GFX], &[true]).expect("suitable");
+        assert_eq!(
+            (chosen.graphics, chosen.present, chosen.transfer),
+            (0, 0, 0)
+        );
+    }
+
+    #[test]
+    fn a_dedicated_transfer_family_is_preferred_over_graphics() {
+        // Typical discrete GPU: family 0 does everything, family 1 is
+        // transfer-only.
+        let chosen =
+            choose_families(&[GFX, vk::QueueFlags::TRANSFER], &[true, false]).expect("suitable");
+        assert_eq!(chosen.graphics, 0);
+        assert_eq!(chosen.transfer, 1, "transfer-only family wins");
+    }
+
+    #[test]
+    fn a_compute_transfer_family_does_not_count_as_dedicated() {
+        let compute_transfer = vk::QueueFlags::from_raw(
+            vk::QueueFlags::COMPUTE.as_raw() | vk::QueueFlags::TRANSFER.as_raw(),
+        );
+        let chosen = choose_families(&[GFX, compute_transfer], &[true, false]).expect("suitable");
+        assert_eq!(chosen.transfer, 0, "async compute families are left alone");
+    }
+
+    #[test]
+    fn no_present_capable_family_means_unsuitable() {
+        assert!(choose_families(&[GFX], &[false]).is_none());
     }
 
     // ── the record: measured values, not assumptions ───────────────────────

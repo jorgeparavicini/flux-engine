@@ -1,4 +1,4 @@
-use crate::device::logical::Device;
+use crate::device::logical::RenderDevice;
 use crate::error::RendererError;
 use crate::present::swapchain::Swapchain;
 use ash::vk;
@@ -14,18 +14,18 @@ pub struct CommandPools {
 }
 
 pub fn create_command_pools(
-    device: Single<&Device>,
+    device: Single<&RenderDevice>,
     mut commands: Commands,
 ) -> Result<(), RendererError> {
     debug!("Creating command pools");
 
     let info = vk::CommandPoolCreateInfo::default()
         .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
-        .queue_family_index(device.graphics_queue_index);
+        .queue_family_index(device.graphics.family);
 
     let graphics_pool = unsafe { device.create_command_pool(&info, None)? };
 
-    let info = vk::CommandPoolCreateInfo::default().queue_family_index(device.transfer_queue_index);
+    let info = vk::CommandPoolCreateInfo::default().queue_family_index(device.transfer.family);
 
     let transfer_pool = unsafe { device.create_command_pool(&info, None)? };
 
@@ -45,7 +45,7 @@ pub fn create_command_pools(
 }
 
 pub fn destroy_command_pools(
-    device: Single<&Device>,
+    device: Single<&RenderDevice>,
     command_pools: Single<&CommandPools>,
     mut commands: Commands,
 ) {
@@ -73,7 +73,7 @@ impl Deref for CommandBuffers {
 }
 
 pub fn create_command_buffer(
-    device: Single<&Device>,
+    device: Single<&RenderDevice>,
     command_pools: Single<&CommandPools>,
     swapchain: Single<&Swapchain>,
     mut commands: Commands,
@@ -97,7 +97,7 @@ pub fn create_command_buffer(
 }
 
 pub fn destroy_command_buffers(
-    device: Single<&Device>,
+    device: Single<&RenderDevice>,
     command_pools: Single<&CommandPools>,
     command_buffers: Single<&CommandBuffers>,
     mut commands: Commands,

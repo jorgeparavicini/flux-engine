@@ -1,5 +1,5 @@
 use crate::device::instance::{create_instance, destroy_instance};
-use crate::device::logical::{create_logical_device, destroy_logical_device};
+use crate::device::logical::{create_render_device, destroy_render_device};
 use crate::device::selection::create_physical_device;
 use crate::pipeline::descriptors::{create_descriptors, destroy_descriptors};
 use crate::pipeline::graphics::{create_pipeline, destroy_pipeline};
@@ -50,7 +50,7 @@ pub fn startup_schedule() -> Schedule {
     schedule.add(create_instance);
     schedule.add(create_surface);
     schedule.add(create_physical_device);
-    schedule.add(create_logical_device);
+    schedule.add(create_render_device);
     schedule.add(create_swapchain);
     schedule.add(create_pipeline);
     schedule.add(create_depth_buffers);
@@ -114,7 +114,7 @@ pub fn shutdown_schedule() -> Schedule {
     schedule.add(destroy_depth_buffers);
     schedule.add(destroy_pipeline);
     schedule.add(destroy_swapchain);
-    schedule.add(destroy_logical_device);
+    schedule.add(destroy_render_device);
     schedule.add(destroy_surface);
     schedule.add(destroy_instance);
     schedule

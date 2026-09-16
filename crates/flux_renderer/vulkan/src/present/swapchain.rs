@@ -1,6 +1,5 @@
 use crate::device::instance::Instance;
-use crate::device::logical::Device;
-use crate::device::selection::PhysicalDevice;
+use crate::device::logical::RenderDevice;
 use crate::error::RendererError;
 use crate::present::surface::VulkanSurface;
 use ash::{khr, vk};
@@ -30,8 +29,7 @@ impl Deref for Swapchain {
 
 pub fn create_swapchain(
     instance: Single<&Instance>,
-    physical_device: Single<&PhysicalDevice>,
-    device: Single<&Device>,
+    device: Single<&RenderDevice>,
     surface: Single<&VulkanSurface>,
     surface_provider: Single<&PresentTarget>,
     mut commands: Commands,
@@ -40,20 +38,20 @@ pub fn create_swapchain(
 
     let surface_loader = khr::surface::Instance::new(instance.entry(), &instance);
     let capabilities = unsafe {
-        surface_loader.get_physical_device_surface_capabilities(**physical_device, **surface)?
+        surface_loader.get_physical_device_surface_capabilities(device.physical, **surface)?
     };
 
-    let surface_format = physical_device
-        .formats
+    let surface_format = device
+        .surface_formats
         .iter()
         .cloned()
         .find(|format| {
             format.format == vk::Format::B8G8R8A8_SRGB
                 && format.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR
         })
-        .unwrap_or(physical_device.formats[0]);
+        .unwrap_or(device.surface_formats[0]);
 
-    let present_mode = physical_device
+    let present_mode = device
         .present_modes
         .iter()
         .cloned()
@@ -79,11 +77,9 @@ pub fn create_swapchain(
     }
 
     let mut queue_family_indices = vec![];
-    let image_sharing_mode = if physical_device.capabilities.queues.graphics
-        != physical_device.capabilities.queues.present
-    {
-        queue_family_indices.push(physical_device.capabilities.queues.graphics);
-        queue_family_indices.push(physical_device.capabilities.queues.present);
+    let image_sharing_mode = if device.graphics.family != device.present.family {
+        queue_family_indices.push(device.graphics.family);
+        queue_family_indices.push(device.present.family);
         vk::SharingMode::CONCURRENT
     } else {
         vk::SharingMode::EXCLUSIVE
@@ -138,7 +134,7 @@ pub fn create_swapchain(
     Ok(())
 }
 
-fn create_image_view(image: vk::Image, format: vk::Format, device: &Device) -> vk::ImageView {
+fn create_image_view(image: vk::Image, format: vk::Format, device: &RenderDevice) -> vk::ImageView {
     let create_info = vk::ImageViewCreateInfo::default()
         .image(image)
         .view_type(vk::ImageViewType::TYPE_2D)
@@ -162,7 +158,7 @@ fn create_image_view(image: vk::Image, format: vk::Format, device: &Device) -> v
 
 pub fn destroy_swapchain(
     instance: Single<&Instance>,
-    device: Single<&Device>,
+    device: Single<&RenderDevice>,
     swapchain: Single<&Swapchain>,
     mut commands: Commands,
 ) {

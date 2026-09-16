@@ -1,12 +1,8 @@
-use crate::device::instance::Instance;
-use crate::device::logical::Device;
-use crate::device::selection::PhysicalDevice;
+use crate::device::logical::RenderDevice;
 use ash::vk;
 
 pub fn create_image(
-    instance: &Instance,
-    physical_device: &PhysicalDevice,
-    device: &Device,
+    device: &RenderDevice,
     width: u32,
     height: u32,
     format: vk::Format,
@@ -37,9 +33,7 @@ pub fn create_image(
 
     let info = vk::MemoryAllocateInfo::default()
         .allocation_size(requirements.size)
-        .memory_type_index(
-            get_memory_type_index(instance, physical_device, properties, requirements).unwrap(),
-        );
+        .memory_type_index(get_memory_type_index(device, properties, requirements).unwrap());
 
     let image_memory = unsafe { device.allocate_memory(&info, None)? };
 
@@ -50,29 +44,23 @@ pub fn create_image(
     Ok((image, image_memory))
 }
 
+/// Finds a memory type from the device's measured memory properties that
+/// satisfies both the allocation's requirements and the requested flags.
 pub fn get_memory_type_index(
-    instance: &Instance,
-    physical_device: &PhysicalDevice,
+    device: &RenderDevice,
     properties: vk::MemoryPropertyFlags,
     requirements: vk::MemoryRequirements,
 ) -> Option<u32> {
-    let mut memory_properties = vk::PhysicalDeviceMemoryProperties2::default();
-    unsafe {
-        instance.get_physical_device_memory_properties2(**physical_device, &mut memory_properties)
-    };
-
-    (0..memory_properties.memory_properties.memory_type_count).find(|i| {
+    let memory = &device.capabilities.memory;
+    (0..memory.memory_type_count).find(|i| {
         let suitable = (requirements.memory_type_bits & (1 << i) as u32) != 0;
-        let memory_type = memory_properties.memory_properties.memory_types[*i as usize];
-
-        let has_required_properties = memory_type.property_flags.contains(properties);
-
-        suitable && has_required_properties
+        let memory_type = memory.memory_types[*i as usize];
+        suitable && memory_type.property_flags.contains(properties)
     })
 }
 
 pub fn create_image_view(
-    device: &Device,
+    device: &RenderDevice,
     image: vk::Image,
     format: vk::Format,
     aspects: vk::ImageAspectFlags,

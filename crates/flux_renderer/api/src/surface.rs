@@ -13,6 +13,9 @@ pub trait SurfaceProvider {
     fn request_redraw(&self);
 }
 
+/// The window the renderer presents to, as an ECS singleton. The
+/// application constructs it around its own [`SurfaceProvider`] and inserts
+/// it before running the startup schedule.
 #[derive(flux_ecs::Component)]
 #[component(non_send)]
 pub struct PresentTarget {

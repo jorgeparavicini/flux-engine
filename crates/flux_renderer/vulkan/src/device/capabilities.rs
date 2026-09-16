@@ -1,13 +1,31 @@
+//! What a device can do, and what the renderer chooses to use.
+//!
+//! Feature information flows one way through three shapes:
+//!
+//! 1. [`DeviceFeatures`]: what the hardware supports. Measured during
+//!    device selection, never edited afterwards.
+//! 2. [`CapabilityGates`]: what the renderer will actually use. A feature's
+//!    gate is open when the device supports it and it was not force-disabled
+//!    (see [`parse_disabled`]). Code that can take a fast path branches on
+//!    the gate, never on the raw feature.
+//! 3. `EnabledFeatures` (device creation): what is requested from the
+//!    driver: floor features plus every open gate.
+//!
+//! Floor features (currently dynamic rendering) have no gate: the renderer
+//! has no fallback path for them, so unsuitable devices are rejected during
+//! selection instead.
+
 use crate::device::selection::QueueFamilyIndices;
 use ash::vk;
+use log::warn;
 
 /// What a physical device actually provides, measured at selection time.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DeviceCapabilities {
     pub name: String,
     pub device_type: vk::PhysicalDeviceType,
-    /// min(device apiVersion, instance's requested version) — the version
-    /// that is actually usable on this device.
+    /// The version actually usable on this device: the minimum of the
+    /// device's apiVersion and the version the instance requested.
     pub api_version: u32,
     pub features: DeviceFeatures,
     pub portability_subset: bool,
@@ -17,24 +35,33 @@ pub struct DeviceCapabilities {
     pub max_sampler_anisotropy: f32,
 }
 
+/// The optional features a physical device supports, measured once during
+/// selection. Support alone does not mean the renderer uses a feature; that
+/// decision lives in [`CapabilityGates`].
 #[derive(Debug, Default, Clone, Copy)]
 pub struct DeviceFeatures {
     pub dynamic_rendering: bool,
     pub synchronization2: bool,
-    pub timeline_semaphores: bool,
+    pub timeline_semaphore: bool,
     pub buffer_device_address: bool,
     pub descriptor_indexing: bool,
     pub sampler_anisotropy: bool,
 }
 
+/// The renderer's per-device decisions: a gate is open when the feature is
+/// supported and was not force-disabled. Fast-path code branches on these;
+/// each closed gate has a working fallback.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct CapabilityGates {
     pub synchronization2: bool,
-    pub timeline_semaphores: bool,
+    pub timeline_semaphore: bool,
     pub buffer_device_address: bool,
     pub descriptor_indexing: bool,
 }
 
+/// Parses the `FLUX_DISABLED_CAPABILITIES` environment variable: a
+/// comma-separated list of gate names (the field names of
+/// [`CapabilityGates`], e.g. `"timeline_semaphore, buffer_device_address"`).
 pub fn parse_disabled(capabilities: &str) -> Vec<String> {
     capabilities
         .split(',')
@@ -43,23 +70,36 @@ pub fn parse_disabled(capabilities: &str) -> Vec<String> {
         .collect()
 }
 
-pub fn resolve_gates(
-    device_features: DeviceFeatures,
-    disabled_features: &[String],
-) -> CapabilityGates {
-    CapabilityGates {
-        synchronization2: device_features.synchronization2
-            && !disabled_features.contains(&"synchronization2".to_owned()),
-        timeline_semaphores: device_features.timeline_semaphores
-            && !disabled_features.contains(&"timeline_semaphores".to_owned()),
-        buffer_device_address: device_features.buffer_device_address
-            && !disabled_features.contains(&"buffer_device_address".to_owned()),
-        descriptor_indexing: device_features.descriptor_indexing
-            && !disabled_features.contains(&"descriptor_indexing".to_owned()),
+/// Opens a gate for every supported feature, then closes the ones named in
+/// `disabled`. Unknown names are reported and ignored, so a typo in an
+/// override is visible instead of silently doing nothing.
+pub fn resolve_gates(features: DeviceFeatures, disabled: &[String]) -> CapabilityGates {
+    let mut gates = CapabilityGates {
+        synchronization2: features.synchronization2,
+        timeline_semaphore: features.timeline_semaphore,
+        buffer_device_address: features.buffer_device_address,
+        descriptor_indexing: features.descriptor_indexing,
+    };
+    for name in disabled {
+        // The single place a gate name in the override vocabulary is tied to
+        // its field; extend this match when adding a gate.
+        let gate = match name.as_str() {
+            "synchronization2" => &mut gates.synchronization2,
+            "timeline_semaphore" => &mut gates.timeline_semaphore,
+            "buffer_device_address" => &mut gates.buffer_device_address,
+            "descriptor_indexing" => &mut gates.descriptor_indexing,
+            _ => {
+                warn!("unknown capability {name:?} in FLUX_DISABLED_CAPABILITIES; ignoring");
+                continue;
+            }
+        };
+        *gate = false;
     }
+    gates
 }
 
-/// One line per fact, three states per gate: on, unsupported, or forced off.
+/// Renders the record as a human-readable multi-line summary for the startup
+/// log. Each gate shows one of three states: on, unsupported, or forced off.
 pub fn report(capabilities: &DeviceCapabilities, gates: CapabilityGates) -> String {
     use crate::device::instance::format_version;
     use std::fmt::Write;
@@ -129,7 +169,7 @@ pub fn report(capabilities: &DeviceCapabilities, gates: CapabilityGates) -> Stri
     let _ = writeln!(
         out,
         "  timeline semaphores: {}",
-        gate_state(f.timeline_semaphores, gates.timeline_semaphores)
+        gate_state(f.timeline_semaphore, gates.timeline_semaphore)
     );
     let _ = writeln!(
         out,
@@ -152,7 +192,7 @@ mod tests {
         DeviceFeatures {
             dynamic_rendering: true,
             synchronization2: true,
-            timeline_semaphores: true,
+            timeline_semaphore: true,
             buffer_device_address: true,
             descriptor_indexing: true,
             sampler_anisotropy: true,
@@ -164,9 +204,9 @@ mod tests {
     #[test]
     fn parse_disabled_splits_on_commas_and_trims_whitespace() {
         assert_eq!(
-            parse_disabled(" timeline_semaphores,  buffer_device_address "),
+            parse_disabled(" timeline_semaphore,  buffer_device_address "),
             vec![
-                "timeline_semaphores".to_owned(),
+                "timeline_semaphore".to_owned(),
                 "buffer_device_address".to_owned()
             ]
         );
@@ -184,22 +224,22 @@ mod tests {
     fn gates_mirror_features_when_nothing_is_disabled() {
         let gates = resolve_gates(all_features(), &[]);
         assert!(gates.synchronization2);
-        assert!(gates.timeline_semaphores);
+        assert!(gates.timeline_semaphore);
         assert!(gates.buffer_device_address);
         assert!(gates.descriptor_indexing);
 
         let gates = resolve_gates(DeviceFeatures::default(), &[]);
         assert!(!gates.synchronization2);
-        assert!(!gates.timeline_semaphores);
+        assert!(!gates.timeline_semaphore);
         assert!(!gates.buffer_device_address);
         assert!(!gates.descriptor_indexing);
     }
 
     #[test]
     fn force_disabling_turns_a_supported_gate_off() {
-        let disabled = vec!["timeline_semaphores".to_owned()];
+        let disabled = vec!["timeline_semaphore".to_owned()];
         let gates = resolve_gates(all_features(), &disabled);
-        assert!(!gates.timeline_semaphores, "the disabled gate is off");
+        assert!(!gates.timeline_semaphore, "the disabled gate is off");
         assert!(
             gates.synchronization2 && gates.buffer_device_address && gates.descriptor_indexing,
             "other gates are untouched"
@@ -208,9 +248,9 @@ mod tests {
 
     #[test]
     fn force_disabling_an_unsupported_gate_is_harmless() {
-        let disabled = vec!["timeline_semaphores".to_owned()];
+        let disabled = vec!["timeline_semaphore".to_owned()];
         let gates = resolve_gates(DeviceFeatures::default(), &disabled);
-        assert!(!gates.timeline_semaphores);
+        assert!(!gates.timeline_semaphore);
     }
 
     #[test]
@@ -219,7 +259,7 @@ mod tests {
         let gates = resolve_gates(all_features(), &disabled);
         assert!(
             gates.synchronization2
-                && gates.timeline_semaphores
+                && gates.timeline_semaphore
                 && gates.buffer_device_address
                 && gates.descriptor_indexing
         );

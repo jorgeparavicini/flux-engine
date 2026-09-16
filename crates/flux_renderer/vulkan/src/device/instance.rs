@@ -26,6 +26,8 @@ const MAX_SUPPORTED_API: u32 = vk::API_VERSION_1_3;
 const VALIDATION_ENABLED: bool = cfg!(debug_assertions);
 const VALIDATION_LAYER: &CStr = c"VK_LAYER_KHRONOS_validation";
 
+/// The Vulkan instance plus everything negotiated while creating it. Derefs
+/// to [`ash::Instance`]; destroys the debug messenger and instance on drop.
 #[derive(Component)]
 #[component(non_send)]
 pub struct Instance {
@@ -68,6 +70,9 @@ impl Instance {
         self.api_version
     }
 
+    /// Negotiates versions, layers, and extensions against what the loader
+    /// offers, then creates the instance. Fails when the loader is older
+    /// than the supported minimum or a required extension is missing.
     pub fn new(
         display_handle: RawDisplayHandle,
         app: &AppInfo,
@@ -304,6 +309,8 @@ impl Drop for Instance {
     }
 }
 
+/// Creates the [`Instance`] singleton from the application's identity and
+/// the window's display handle.
 pub fn create_instance(
     target: Single<&PresentTarget>,
     app_info: Single<&AppInfo>,
@@ -321,6 +328,7 @@ pub fn create_instance(
     Ok(())
 }
 
+/// Removes the [`Instance`] singleton; destruction happens in its `Drop`.
 pub fn destroy_instance(mut commands: Commands) {
     commands.remove_singleton::<Instance>();
 }

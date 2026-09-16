@@ -21,8 +21,6 @@ pub struct AppVersion {
     pub patch: u32,
 }
 
-/// Behavior configuration supplied by the application. Presentation
-/// preferences and capability overrides are added here as the renderer gains
-/// them.
+/// Behavior configuration supplied by the application.
 #[derive(Debug, Clone, Default, flux_ecs::Component)]
 pub struct RendererSettings {}

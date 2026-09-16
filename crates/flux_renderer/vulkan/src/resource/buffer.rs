@@ -1,6 +1,4 @@
-use crate::device::instance::Instance;
-use crate::device::logical::Device;
-use crate::device::selection::PhysicalDevice;
+use crate::device::logical::RenderDevice;
 use crate::error::RendererError;
 use crate::present::swapchain::Swapchain;
 use crate::render::commands::CommandPools;
@@ -66,9 +64,7 @@ pub struct UniformBuffers {
 }
 
 pub fn create_vertex_buffer(
-    instance: Single<&Instance>,
-    physical_device: Single<&PhysicalDevice>,
-    device: Single<&Device>,
+    device: Single<&RenderDevice>,
     command_pools: Single<&CommandPools>,
     mut commands: Commands,
 ) -> Result<(), RendererError> {
@@ -77,8 +73,6 @@ pub fn create_vertex_buffer(
     let size = (size_of::<Vertex>() * VERTICES.len()) as u64;
 
     let (staging_buffer, staging_buffer_memory) = create_buffer(
-        &instance,
-        &physical_device,
         &device,
         size,
         vk::BufferUsageFlags::TRANSFER_SRC,
@@ -93,8 +87,6 @@ pub fn create_vertex_buffer(
     unsafe { device.unmap_memory(staging_buffer_memory) };
 
     let (vertex_buffer, vertex_buffer_memory) = create_buffer(
-        &instance,
-        &physical_device,
         &device,
         size,
         vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
@@ -119,9 +111,7 @@ pub fn create_vertex_buffer(
 }
 
 pub fn create_index_buffer(
-    instance: Single<&Instance>,
-    physical_device: Single<&PhysicalDevice>,
-    device: Single<&Device>,
+    device: Single<&RenderDevice>,
     command_pools: Single<&CommandPools>,
     mut commands: Commands,
 ) -> Result<(), RendererError> {
@@ -131,8 +121,6 @@ pub fn create_index_buffer(
     let size = (size_of::<u32>() * indices.len()) as u64;
 
     let (staging_buffer, staging_buffer_memory) = create_buffer(
-        &instance,
-        &physical_device,
         &device,
         size,
         vk::BufferUsageFlags::TRANSFER_SRC,
@@ -149,8 +137,6 @@ pub fn create_index_buffer(
     unsafe { device.unmap_memory(staging_buffer_memory) };
 
     let (index_buffer, index_buffer_memory) = create_buffer(
-        &instance,
-        &physical_device,
         &device,
         size,
         vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER,
@@ -173,9 +159,7 @@ pub fn create_index_buffer(
 }
 
 pub fn create_uniform_buffer(
-    instance: Single<&Instance>,
-    physical_device: Single<&PhysicalDevice>,
-    device: Single<&Device>,
+    device: Single<&RenderDevice>,
     swapchain: Single<&Swapchain>,
     mut commands: Commands,
 ) -> Result<(), RendererError> {
@@ -187,8 +171,6 @@ pub fn create_uniform_buffer(
 
     for _ in 0..swapchain.images.len() {
         let (uniform_buffer, uniform_buffer_memory) = create_buffer(
-            &instance,
-            &physical_device,
             &device,
             size_of::<UniformBufferObject>() as u64,
             vk::BufferUsageFlags::UNIFORM_BUFFER,
@@ -207,9 +189,7 @@ pub fn create_uniform_buffer(
 }
 
 pub fn create_buffer(
-    instance: &Instance,
-    physical_device: &PhysicalDevice,
-    device: &Device,
+    device: &RenderDevice,
     size: vk::DeviceSize,
     usage: vk::BufferUsageFlags,
     properties: vk::MemoryPropertyFlags,
@@ -224,9 +204,7 @@ pub fn create_buffer(
 
     let memory_info = vk::MemoryAllocateInfo::default()
         .allocation_size(requirements.size)
-        .memory_type_index(
-            get_memory_type_index(instance, physical_device, properties, requirements).unwrap(),
-        );
+        .memory_type_index(get_memory_type_index(device, properties, requirements).unwrap());
 
     let buffer_memory = unsafe { device.allocate_memory(&memory_info, None)? };
 
@@ -238,7 +216,7 @@ pub fn create_buffer(
 }
 
 pub fn copy_buffer(
-    device: &Device,
+    device: &RenderDevice,
     command_pools: &CommandPools,
     src_buffer: vk::Buffer,
     dst_buffer: vk::Buffer,
@@ -251,7 +229,7 @@ pub fn copy_buffer(
 
     end_single_time_commands(
         device,
-        device.transfer_queue,
+        device.transfer.raw,
         command_pools.transfer,
         command_buffer,
     )?;
@@ -260,7 +238,7 @@ pub fn copy_buffer(
 }
 
 unsafe fn begin_single_time_commands(
-    device: &Device,
+    device: &RenderDevice,
     command_pool: vk::CommandPool,
 ) -> Result<vk::CommandBuffer, vk::Result> {
     let info = vk::CommandBufferAllocateInfo::default()
@@ -279,7 +257,7 @@ unsafe fn begin_single_time_commands(
 }
 
 fn end_single_time_commands(
-    device: &Device,
+    device: &RenderDevice,
     queue: vk::Queue,
     command_pool: vk::CommandPool,
     command_buffer: vk::CommandBuffer,
@@ -298,7 +276,7 @@ fn end_single_time_commands(
 }
 
 pub fn destroy_buffers(
-    device: Single<&Device>,
+    device: Single<&RenderDevice>,
     vertex_buffer: Single<&VertexBuffer>,
     index_buffer: Single<&IndexBuffer>,
     uniform_buffers: Single<&UniformBuffers>,

@@ -16,6 +16,4 @@ pub enum RendererError {
     UnsupportedLoader { found: String, minimum: String },
     #[error("required instance extensions are missing: {0:?}")]
     MissingInstanceExtensions(Vec<String>),
-    #[error("shader error: {0}")]
-    Shader(String),
 }
