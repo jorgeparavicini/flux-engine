@@ -30,8 +30,11 @@ jobs:
       # then this becomes `cargo clippy ... -- -D warnings`.
       - run: cargo clippy --workspace --all-targets
 
-      # Device tests run on lavapipe, Mesa's software Vulkan implementation.
+      - run: ls -la /usr/share/vulkan/icd.d/
+
+      # Device tests run on lavapipe, Mesa's software Vulkan implementation,
+      # found by loader enumeration: it is the only driver that yields a
+      # device on a GPU-less runner.
       - run: cargo test --workspace
         env:
-          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
           RUST_LOG: info
