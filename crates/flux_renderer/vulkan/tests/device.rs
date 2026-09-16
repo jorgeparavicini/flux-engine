@@ -7,6 +7,7 @@ use flux_renderer_vulkan::{RenderDevice, take_validation_errors};
 
 #[test]
 fn headless_device_creation_is_validation_clean() {
+    let _ = pretty_env_logger::try_init();
     let app = AppInfo {
         name: "flux device tests".to_owned(),
         ..AppInfo::default()

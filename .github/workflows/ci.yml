@@ -34,3 +34,4 @@ jobs:
       - run: cargo test --workspace
         env:
           VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+          RUST_LOG: info

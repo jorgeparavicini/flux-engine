@@ -17,6 +17,7 @@ thiserror = { workspace = true }
 
 [dev-dependencies]
 flux_renderer_api = { workspace = true }
+pretty_env_logger = { workspace = true }
 
 [build-dependencies]
 shaderc = { workspace = true }
