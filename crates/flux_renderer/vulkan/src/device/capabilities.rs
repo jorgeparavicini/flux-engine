@@ -39,6 +39,10 @@ pub struct DeviceCapabilities {
 /// selection. Support alone does not mean the renderer uses a feature; that
 /// decision lives in [`CapabilityGates`].
 #[derive(Debug, Default, Clone, Copy)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "a capability record is a set of flags"
+)]
 pub struct DeviceFeatures {
     pub dynamic_rendering: bool,
     pub synchronization2: bool,
@@ -52,6 +56,10 @@ pub struct DeviceFeatures {
 /// supported and was not force-disabled. Fast-path code branches on these;
 /// each closed gate has a working fallback.
 #[derive(Debug, Default, Clone, Copy)]
+#[allow(
+    clippy::struct_excessive_bools,
+    reason = "a capability record is a set of flags"
+)]
 pub struct CapabilityGates {
     pub synchronization2: bool,
     pub timeline_semaphore: bool,

@@ -3,13 +3,10 @@ use crate::device::capabilities::{
 };
 use crate::device::instance::{Instance, MIN_SUPPORTED_API, format_version};
 use crate::error::RendererError;
-use crate::present::surface::VulkanSurface;
 use ash::vk::{
     PhysicalDeviceFeatures2, PhysicalDeviceVulkan12Features, PhysicalDeviceVulkan13Features,
 };
 use ash::{khr, vk};
-use flux_ecs::Commands;
-use flux_ecs::Single;
 use log::{debug, info};
 use std::ffi::CStr;
 use std::fmt::Debug;
@@ -18,11 +15,13 @@ use thiserror::Error;
 
 pub const REQUIRED_DEVICE_EXTENSIONS: &[&CStr] = &[khr::swapchain::NAME];
 
-/// The selected physical device and everything measured about it. Inserted
-/// by [`create_physical_device`]; device creation consumes it.
-#[derive(flux_ecs::Component)]
+/// The selected physical device and everything measured about it, produced
+/// by [`select_physical_device`] and consumed by device creation.
 pub struct PhysicalDevice {
     pub raw: vk::PhysicalDevice,
+    /// Whether the device was selected for presenting to a surface.
+    /// Presentation extensions are enabled at device creation only then.
+    pub presentation: bool,
     pub capabilities: DeviceCapabilities,
     pub gates: CapabilityGates,
     pub formats: Vec<vk::SurfaceFormatKHR>,
@@ -94,7 +93,7 @@ impl QueueFamilyIndices {
         entry: &ash::Entry,
         instance: &ash::Instance,
         physical_device: vk::PhysicalDevice,
-        surface: vk::SurfaceKHR,
+        surface: Option<vk::SurfaceKHR>,
     ) -> Option<Self> {
         let properties = unsafe {
             let len = instance.get_physical_device_queue_family_properties2_len(physical_device);
@@ -108,23 +107,28 @@ impl QueueFamilyIndices {
             .map(|p| p.queue_family_properties.queue_flags)
             .collect();
 
-        let surface_loader = khr::surface::Instance::new(entry, instance);
-        let present_support: Vec<bool> = (0..properties.len())
-            .map(|index| {
-                matches!(
-                    unsafe {
-                        surface_loader.get_physical_device_surface_support(
-                            physical_device,
-                            index as u32,
-                            surface,
+        let present_support: Vec<bool> = surface.map_or_else(
+            || vec![false; properties.len()],
+            |surface| {
+                let loader = khr::surface::Instance::new(entry, instance);
+                (0..properties.len())
+                    .map(|index| {
+                        matches!(
+                            unsafe {
+                                loader.get_physical_device_surface_support(
+                                    physical_device,
+                                    index as u32,
+                                    surface,
+                                )
+                            },
+                            Ok(true)
                         )
-                    },
-                    Ok(true)
-                )
-            })
-            .collect();
+                    })
+                    .collect()
+            },
+        );
 
-        choose_families(&flags, &present_support)
+        choose_families(&flags, &present_support, surface.is_some())
     }
 }
 
@@ -139,11 +143,16 @@ impl QueueFamilyIndices {
 fn choose_families(
     flags: &[vk::QueueFlags],
     present_support: &[bool],
+    require_present: bool,
 ) -> Option<QueueFamilyIndices> {
     let graphics = flags
         .iter()
         .position(|f| f.contains(vk::QueueFlags::GRAPHICS))?;
-    let present = present_support.iter().position(|&supported| supported)?;
+    let present = if require_present {
+        present_support.iter().position(|&supported| supported)?
+    } else {
+        graphics
+    };
     let dedicated_transfer = flags.iter().position(|f| {
         f.contains(vk::QueueFlags::TRANSFER)
             && !f.contains(vk::QueueFlags::GRAPHICS)
@@ -158,18 +167,21 @@ fn choose_families(
     })
 }
 
-pub fn create_physical_device(
-    instance: Single<&Instance>,
-    surface: Single<&VulkanSurface>,
-    mut commands: Commands,
-) -> Result<(), RendererError> {
+/// Selects the best suitable physical device for `surface`, or for headless
+/// use when no surface is given. Logs why each rejected candidate was passed
+/// over and prints the capability report for the winner. Fails with
+/// [`RendererError::NoSuitableDevice`] when no device passes the floor.
+pub fn select_physical_device(
+    instance: &Instance,
+    surface: Option<vk::SurfaceKHR>,
+) -> Result<PhysicalDevice, RendererError> {
     info!("Selecting a physical device");
     let disabled = parse_disabled(&std::env::var("FLUX_DISABLED_CAPABILITIES").unwrap_or_default());
 
     let mut best: Option<(u32, vk::PhysicalDevice, DeviceCapabilities, QueriedDevice)> = None;
     for physical_device in unsafe { instance.enumerate_physical_devices()? } {
-        let queried = query_device(&instance, physical_device, **surface)?;
-        match evaluate(&queried, instance.api_version()) {
+        let queried = query_device(instance, physical_device, surface)?;
+        match evaluate(&queried, instance.api_version(), surface.is_some()) {
             Ok((capabilities, score)) => {
                 debug!("{} is suitable, score {score}", queried.name);
                 if best.as_ref().is_none_or(|(top, ..)| score > *top) {
@@ -180,12 +192,13 @@ pub fn create_physical_device(
         }
     }
 
-    let Some((_, physical_device, capabilities, queried)) = best else {
+    let Some((_, raw, capabilities, queried)) = best else {
         return Err(RendererError::NoSuitableDevice);
     };
 
     let physical_device = PhysicalDevice {
-        raw: physical_device,
+        raw,
+        presentation: surface.is_some(),
         gates: resolve_gates(capabilities.features, &disabled),
         capabilities,
         formats: queried.formats,
@@ -195,9 +208,7 @@ pub fn create_physical_device(
         "{}",
         crate::device::capabilities::report(&physical_device.capabilities, physical_device.gates)
     );
-    commands.insert_singleton(physical_device);
-
-    Ok(())
+    Ok(physical_device)
 }
 
 /// Gathers everything [`evaluate`] needs from one device. All Vulkan queries
@@ -205,7 +216,7 @@ pub fn create_physical_device(
 fn query_device(
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
-    surface: vk::SurfaceKHR,
+    surface: Option<vk::SurfaceKHR>,
 ) -> Result<QueriedDevice, RendererError> {
     let properties = unsafe { instance.get_physical_device_properties(physical_device) };
     let features = if properties.api_version >= MIN_SUPPORTED_API {
@@ -238,11 +249,17 @@ fn query_device(
         })
         .collect::<Vec<_>>();
     let indices = QueueFamilyIndices::get(instance.entry(), instance, physical_device, surface);
-    let surface_instance = khr::surface::Instance::new(instance.entry(), instance);
-    let formats =
-        unsafe { surface_instance.get_physical_device_surface_formats(physical_device, surface)? };
-    let present_modes = unsafe {
-        surface_instance.get_physical_device_surface_present_modes(physical_device, surface)?
+    let (formats, present_modes) = match surface {
+        Some(surface) => {
+            let loader = khr::surface::Instance::new(instance.entry(), instance);
+            (
+                unsafe { loader.get_physical_device_surface_formats(physical_device, surface)? },
+                unsafe {
+                    loader.get_physical_device_surface_present_modes(physical_device, surface)?
+                },
+            )
+        }
+        None => (Vec::new(), Vec::new()),
     };
     let memory = unsafe { instance.get_physical_device_memory_properties(physical_device) };
 
@@ -271,6 +288,7 @@ fn query_device(
 fn evaluate(
     candidate: &QueriedDevice,
     instance_api: u32,
+    needs_presentation: bool,
 ) -> Result<(DeviceCapabilities, u32), Rejection> {
     let effective_api = candidate.api_version.min(instance_api);
     if effective_api < MIN_SUPPORTED_API {
@@ -284,11 +302,13 @@ fn evaluate(
     let Some(queues) = candidate.indices else {
         return Err(Rejection::MissingQueueFamilies);
     };
-    if !candidate.has_swapchain_extension {
-        return Err(Rejection::MissingExtension("VK_KHR_swapchain"));
-    }
-    if candidate.formats.is_empty() || candidate.present_modes.is_empty() {
-        return Err(Rejection::NoSurfaceSupport);
+    if needs_presentation {
+        if !candidate.has_swapchain_extension {
+            return Err(Rejection::MissingExtension("VK_KHR_swapchain"));
+        }
+        if candidate.formats.is_empty() || candidate.present_modes.is_empty() {
+            return Err(Rejection::NoSurfaceSupport);
+        }
     }
 
     let mut score = match candidate.device_type {
@@ -353,7 +373,7 @@ mod tests {
     }
 
     fn score_of(candidate: &QueriedDevice) -> u32 {
-        evaluate(candidate, INSTANCE_API)
+        evaluate(candidate, INSTANCE_API, true)
             .expect("candidate must be suitable")
             .1
     }
@@ -362,7 +382,7 @@ mod tests {
 
     #[test]
     fn a_healthy_device_is_accepted() {
-        assert!(evaluate(&candidate(), INSTANCE_API).is_ok());
+        assert!(evaluate(&candidate(), INSTANCE_API, true).is_ok());
     }
 
     #[test]
@@ -370,7 +390,7 @@ mod tests {
         let mut c = candidate();
         c.api_version = vk::make_api_version(0, 1, 2, 198);
         assert!(matches!(
-            evaluate(&c, INSTANCE_API),
+            evaluate(&c, INSTANCE_API, true),
             Err(Rejection::BelowMinimumVersion { .. })
         ));
     }
@@ -380,7 +400,7 @@ mod tests {
         let mut c = candidate();
         c.features.dynamic_rendering = false;
         assert!(matches!(
-            evaluate(&c, INSTANCE_API),
+            evaluate(&c, INSTANCE_API, true),
             Err(Rejection::MissingFeature(_))
         ));
     }
@@ -390,7 +410,7 @@ mod tests {
         let mut c = candidate();
         c.indices = None;
         assert!(matches!(
-            evaluate(&c, INSTANCE_API),
+            evaluate(&c, INSTANCE_API, true),
             Err(Rejection::MissingQueueFamilies)
         ));
     }
@@ -400,7 +420,7 @@ mod tests {
         let mut c = candidate();
         c.has_swapchain_extension = false;
         assert!(matches!(
-            evaluate(&c, INSTANCE_API),
+            evaluate(&c, INSTANCE_API, true),
             Err(Rejection::MissingExtension(_))
         ));
     }
@@ -410,14 +430,14 @@ mod tests {
         let mut c = candidate();
         c.formats.clear();
         assert!(matches!(
-            evaluate(&c, INSTANCE_API),
+            evaluate(&c, INSTANCE_API, true),
             Err(Rejection::NoSurfaceSupport)
         ));
 
         let mut c = candidate();
         c.present_modes.clear();
         assert!(matches!(
-            evaluate(&c, INSTANCE_API),
+            evaluate(&c, INSTANCE_API, true),
             Err(Rejection::NoSurfaceSupport)
         ));
     }
@@ -429,7 +449,8 @@ mod tests {
         let mut c = candidate();
         c.features.timeline_semaphore = false;
         c.features.buffer_device_address = false;
-        let (capabilities, _) = evaluate(&c, INSTANCE_API).expect("optional features never reject");
+        let (capabilities, _) =
+            evaluate(&c, INSTANCE_API, true).expect("optional features never reject");
         assert!(!capabilities.features.timeline_semaphore);
         assert!(!capabilities.features.buffer_device_address);
         assert!(capabilities.features.dynamic_rendering);
@@ -458,7 +479,7 @@ mod tests {
         // lavapipe in CI reports PhysicalDeviceType::CPU; it must pass the floor.
         let mut c = candidate();
         c.device_type = vk::PhysicalDeviceType::CPU;
-        assert!(evaluate(&c, INSTANCE_API).is_ok());
+        assert!(evaluate(&c, INSTANCE_API, true).is_ok());
     }
 
     // ── choose_families: role assignment over the family table ──────────────
@@ -471,7 +492,7 @@ mod tests {
 
     #[test]
     fn one_do_everything_family_serves_all_roles() {
-        let chosen = choose_families(&[GFX], &[true]).expect("suitable");
+        let chosen = choose_families(&[GFX], &[true], true).expect("suitable");
         assert_eq!(
             (chosen.graphics, chosen.present, chosen.transfer),
             (0, 0, 0)
@@ -482,8 +503,8 @@ mod tests {
     fn a_dedicated_transfer_family_is_preferred_over_graphics() {
         // Typical discrete GPU: family 0 does everything, family 1 is
         // transfer-only.
-        let chosen =
-            choose_families(&[GFX, vk::QueueFlags::TRANSFER], &[true, false]).expect("suitable");
+        let chosen = choose_families(&[GFX, vk::QueueFlags::TRANSFER], &[true, false], true)
+            .expect("suitable");
         assert_eq!(chosen.graphics, 0);
         assert_eq!(chosen.transfer, 1, "transfer-only family wins");
     }
@@ -493,13 +514,34 @@ mod tests {
         let compute_transfer = vk::QueueFlags::from_raw(
             vk::QueueFlags::COMPUTE.as_raw() | vk::QueueFlags::TRANSFER.as_raw(),
         );
-        let chosen = choose_families(&[GFX, compute_transfer], &[true, false]).expect("suitable");
+        let chosen =
+            choose_families(&[GFX, compute_transfer], &[true, false], true).expect("suitable");
         assert_eq!(chosen.transfer, 0, "async compute families are left alone");
     }
 
     #[test]
     fn no_present_capable_family_means_unsuitable() {
-        assert!(choose_families(&[GFX], &[false]).is_none());
+        assert!(choose_families(&[GFX], &[false], true).is_none());
+    }
+
+    // ── headless: presentation requirements are waived ──────────────────────
+
+    #[test]
+    fn headless_accepts_a_device_with_no_surface_support() {
+        let mut c = candidate();
+        c.has_swapchain_extension = false;
+        c.formats.clear();
+        c.present_modes.clear();
+        assert!(
+            evaluate(&c, INSTANCE_API, false).is_ok(),
+            "surface checks apply only when presentation is needed"
+        );
+    }
+
+    #[test]
+    fn headless_family_choice_needs_no_present_family() {
+        let chosen = choose_families(&[GFX], &[false], false).expect("suitable headless");
+        assert_eq!(chosen.present, chosen.graphics);
     }
 
     // ── the record: measured values, not assumptions ───────────────────────
@@ -508,7 +550,7 @@ mod tests {
     fn effective_version_is_the_lower_of_device_and_instance() {
         let mut c = candidate();
         c.api_version = vk::make_api_version(0, 1, 4, 0);
-        let (capabilities, _) = evaluate(&c, INSTANCE_API).expect("1.4 device is fine");
+        let (capabilities, _) = evaluate(&c, INSTANCE_API, true).expect("1.4 device is fine");
         assert_eq!(
             capabilities.api_version, INSTANCE_API,
             "a 1.4 device behind a 1.3 request is effectively 1.3"
@@ -519,7 +561,7 @@ mod tests {
     fn capabilities_carry_the_measured_identity() {
         let mut c = candidate();
         c.portability_subset = true;
-        let (capabilities, _) = evaluate(&c, INSTANCE_API).expect("suitable");
+        let (capabilities, _) = evaluate(&c, INSTANCE_API, true).expect("suitable");
         assert_eq!(capabilities.name, "test gpu");
         assert!(capabilities.portability_subset);
         assert_eq!(

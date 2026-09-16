@@ -15,7 +15,7 @@ use std::ops::Deref;
 /// Oldest Vulkan version the renderer accepts. The frame path relies on 1.3
 /// core features (dynamic rendering), and every supported platform provides
 /// at least 1.3.
-pub(crate) const MIN_SUPPORTED_API: u32 = vk::API_VERSION_1_3;
+pub const MIN_SUPPORTED_API: u32 = vk::API_VERSION_1_3;
 
 /// Newest Vulkan version the renderer requests. `apiVersion` is a promise
 /// that the application copes with everything the newer core version
@@ -60,12 +60,14 @@ impl InstanceExtensions {
 }
 
 impl Instance {
+    #[must_use]
     pub const fn entry(&self) -> &ash::Entry {
         &self.entry
     }
 
     /// The Vulkan version requested at creation. Devices may support less;
     /// the effective version per device is the minimum of the two.
+    #[must_use]
     pub const fn api_version(&self) -> u32 {
         self.api_version
     }
@@ -73,12 +75,45 @@ impl Instance {
     /// Negotiates versions, layers, and extensions against what the loader
     /// offers, then creates the instance. Fails when the loader is older
     /// than the supported minimum or a required extension is missing.
+    /// Creates an instance with no window-system integration, for tests and
+    /// offscreen work. Negotiation matches [`Self::new`] minus the surface
+    /// extensions.
+    /// Creates an instance with no window-system integration, for tests and
+    /// offscreen work. Negotiation matches [`Self::new`] minus the surface
+    /// extensions.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the loader is older than the supported minimum or a
+    /// required extension is missing.
+    pub fn new_headless(
+        app: &AppInfo,
+        _settings: &RendererSettings,
+    ) -> Result<Self, RendererError> {
+        info!("Creating the headless vulkan instance");
+        Self::create(app, &[])
+    }
+
+    /// Negotiates versions, layers, and extensions against what the loader
+    /// offers, then creates the instance.
+    ///
+    /// # Errors
+    ///
+    /// Fails when the loader is older than the supported minimum or a
+    /// required extension is missing.
     pub fn new(
         display_handle: RawDisplayHandle,
         app: &AppInfo,
         _settings: &RendererSettings,
     ) -> Result<Self, RendererError> {
         info!("Creating the vulkan instance");
+        Self::create(app, &surface_extensions(display_handle)?)
+    }
+
+    /// Shared construction: negotiates versions, layers, and extensions
+    /// against what the loader offers, creates the instance, and attaches the
+    /// debug messenger.
+    fn create(app: &AppInfo, surface_extensions: &[&'static CStr]) -> Result<Self, RendererError> {
         let entry = ash::Entry::linked();
 
         let loader_version =
@@ -95,10 +130,9 @@ impl Instance {
             warn!("Validation layers requested but not available; continuing without them");
         }
 
-        let surface_extensions = surface_extensions(display_handle)?;
         let extensions = negotiate_extensions(
             &available_extensions(&entry, validation)?,
-            &surface_extensions,
+            surface_extensions,
             cfg!(any(target_os = "macos", target_os = "ios")),
             validation,
         )?;
@@ -111,19 +145,11 @@ impl Instance {
             app,
             api_version,
             validation,
-            &surface_extensions,
+            surface_extensions,
             extensions,
         )?;
 
-        let debug = if extensions.debug_utils {
-            let loader = debug_utils::Instance::new(&entry, &raw);
-            let messenger = unsafe {
-                loader.create_debug_utils_messenger(&debug::debug_messenger_create_info(), None)?
-            };
-            Some((loader, messenger))
-        } else {
-            None
-        };
+        let debug = create_debug_utils_messenger(&entry, &raw, extensions)?;
 
         Ok(Self {
             entry,
@@ -277,7 +303,23 @@ fn create_raw_instance(
     Ok(unsafe { entry.create_instance(&create_info, None)? })
 }
 
-pub(crate) fn format_version(version: u32) -> String {
+fn create_debug_utils_messenger(
+    entry: &ash::Entry,
+    instance: &ash::Instance,
+    extensions: InstanceExtensions,
+) -> Result<Option<(debug_utils::Instance, vk::DebugUtilsMessengerEXT)>, RendererError> {
+    if extensions.debug_utils {
+        let loader = debug_utils::Instance::new(entry, instance);
+        let messenger = unsafe {
+            loader.create_debug_utils_messenger(&debug::debug_messenger_create_info(), None)?
+        };
+        Ok(Some((loader, messenger)))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn format_version(version: u32) -> String {
     format!(
         "{}.{}.{}",
         vk::api_version_major(version),

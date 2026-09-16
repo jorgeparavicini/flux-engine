@@ -1,6 +1,5 @@
 use crate::device::instance::{create_instance, destroy_instance};
 use crate::device::logical::{create_render_device, destroy_render_device};
-use crate::device::selection::create_physical_device;
 use crate::pipeline::descriptors::{create_descriptors, destroy_descriptors};
 use crate::pipeline::graphics::{create_pipeline, destroy_pipeline};
 use crate::present::surface::{create_surface, destroy_surface};
@@ -49,7 +48,6 @@ pub fn startup_schedule() -> Schedule {
     let mut schedule = Schedule::new();
     schedule.add(create_instance);
     schedule.add(create_surface);
-    schedule.add(create_physical_device);
     schedule.add(create_render_device);
     schedule.add(create_swapchain);
     schedule.add(create_pipeline);

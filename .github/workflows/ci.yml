@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   pull_request:
 
 env:
@@ -19,7 +19,7 @@ jobs:
 
       # ash is built with the "linked" feature, so the Vulkan loader must be
       # present at link time even though no device is used in CI.
-      - run: sudo apt-get update && sudo apt-get install -y libvulkan-dev
+      - run: sudo apt-get update && sudo apt-get install -y libvulkan-dev mesa-vulkan-drivers
 
       - uses: Swatinem/rust-cache@v2
 
@@ -30,4 +30,7 @@ jobs:
       # then this becomes `cargo clippy ... -- -D warnings`.
       - run: cargo clippy --workspace --all-targets
 
+      # Device tests run on lavapipe, Mesa's software Vulkan implementation.
       - run: cargo test --workspace
+        env:
+          VK_ICD_FILENAMES: /usr/share/vulkan/icd.d/lvp_icd.x86_64.json

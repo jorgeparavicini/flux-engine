@@ -15,6 +15,9 @@ log = { workspace = true }
 raw-window-handle = { workspace = true }
 thiserror = { workspace = true }
 
+[dev-dependencies]
+flux_renderer_api = { workspace = true }
+
 [build-dependencies]
 shaderc = { workspace = true }
 

@@ -1,11 +1,15 @@
 use crate::device::capabilities::{CapabilityGates, DeviceCapabilities, DeviceFeatures};
 use crate::device::debug::DebugUtils;
 use crate::device::instance::Instance;
-use crate::device::selection::{PhysicalDevice, QueueFamilyIndices, REQUIRED_DEVICE_EXTENSIONS};
+use crate::device::selection::{
+    PhysicalDevice, QueueFamilyIndices, REQUIRED_DEVICE_EXTENSIONS, select_physical_device,
+};
 use crate::error::RendererError;
+use crate::present::surface::VulkanSurface;
 use ash::vk;
 use flux_ecs::Commands;
 use flux_ecs::Single;
+use flux_renderer_api::settings::{AppInfo, RendererSettings};
 use log::info;
 use std::ops::Deref;
 
@@ -19,8 +23,10 @@ pub struct Queue {
 }
 
 /// The renderer's logical device: the ash device, its queues, and the
-/// measured record it was created from. Derefs to [`ash::Device`]; destroys
-/// the device on drop, so it must outlive every object created from it.
+/// measured record it was created from.
+///
+/// Derefs to [`ash::Device`]. Destroys the device on drop, so it must
+/// outlive every object created from it.
 #[derive(flux_ecs::Component)]
 pub struct RenderDevice {
     raw: ash::Device,
@@ -61,10 +67,10 @@ impl RenderDevice {
             .push_next(&mut enabled_features.v12)
             .push_next(&mut enabled_features.v13);
 
-        let mut extensions = REQUIRED_DEVICE_EXTENSIONS
-            .iter()
-            .map(|&e| e.as_ptr())
-            .collect::<Vec<_>>();
+        let mut extensions = Vec::new();
+        if physical_device.presentation {
+            extensions.extend(REQUIRED_DEVICE_EXTENSIONS.iter().map(|&e| e.as_ptr()));
+        }
         if physical_device.capabilities.portability_subset {
             extensions.push(ash::khr::portability_subset::NAME.as_ptr());
         }
@@ -75,7 +81,7 @@ impl RenderDevice {
             .push_next(&mut features);
 
         let device = unsafe { instance.create_device(**physical_device, &create_info, None)? };
-        let debug_utils = DebugUtils::new(&instance, &device);
+        let debug_utils = DebugUtils::new(instance, &device);
         debug_utils.set_name(device.handle(), "flux device");
 
         let queue = |family: u32| Queue {
@@ -98,6 +104,25 @@ impl RenderDevice {
             surface_formats: physical_device.formats.clone(),
             present_modes: physical_device.present_modes.clone(),
         })
+    }
+
+    /// Creates a device with no surface attached, for tests and offscreen
+    /// work: a headless instance, the best headless-suitable physical
+    /// device, and a `RenderDevice` whose surface snapshot is empty. The
+    /// returned instance must outlive the device.
+    ///
+    /// # Errors
+    ///
+    /// Fails when instance creation fails, no device passes the selection
+    /// floor, or device creation fails.
+    pub fn new_headless(
+        app: &AppInfo,
+        settings: &RendererSettings,
+    ) -> Result<(Instance, Self), RendererError> {
+        let instance = Instance::new_headless(app, settings)?;
+        let physical_device = select_physical_device(&instance, None)?;
+        let device = Self::new(&instance, &physical_device)?;
+        Ok((instance, device))
     }
 
     /// Blocks until the device finishes all submitted work. Shutdown-path
@@ -155,17 +180,15 @@ fn unique_queue_families(queues: QueueFamilyIndices) -> Vec<u32> {
     families
 }
 
-/// Creates the [`RenderDevice`] singleton from the selected
-/// [`PhysicalDevice`] record and removes that record: after this system runs,
-/// the device is the single source for everything it absorbed.
+/// Selects the best physical device for the window surface and creates the
+/// [`RenderDevice`] singleton from it.
 pub fn create_render_device(
     instance: Single<&Instance>,
-    physical_device: Single<&PhysicalDevice>,
+    surface: Single<&VulkanSurface>,
     mut commands: Commands,
 ) -> Result<(), RendererError> {
-    let render_device = RenderDevice::new(&instance, &physical_device)?;
-    commands.insert_singleton(render_device);
-    commands.remove_singleton::<PhysicalDevice>();
+    let physical_device = select_physical_device(&instance, Some(**surface))?;
+    commands.insert_singleton(RenderDevice::new(&instance, &physical_device)?);
     Ok(())
 }
 
