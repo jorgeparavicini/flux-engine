@@ -36,7 +36,7 @@ pub fn setup(world: &mut World) {
                 color: [1.0, 1.0, 1.0],
             },
         ],
-        indices: Some(vec![1, 0, 2]),
+        indices: Some(vec![0, 2, 1]),
     };
     world.spawn((MeshComponent(mesh),));
     world.insert_singleton(FrameData::default());
