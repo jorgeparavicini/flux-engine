@@ -1,6 +1,6 @@
 use crate::device::logical::RenderDevice;
 use crate::error::RendererError;
-use crate::present::swapchain::Swapchain;
+use crate::present::presenter::Presenter;
 use ash::vk;
 use flux_ecs::Commands;
 use flux_ecs::Single;
@@ -34,7 +34,7 @@ impl Deref for Pipeline {
 
 pub fn create_pipeline(
     device: Single<&RenderDevice>,
-    swapchain: Single<&Swapchain>,
+    presenter: Single<&Presenter>,
     mut commands: Commands,
 ) -> Result<(), RendererError> {
     let vertex_shader_module = create_shader_module(
@@ -87,14 +87,14 @@ pub fn create_pipeline(
     let viewport = vk::Viewport::default()
         .x(0.0)
         .y(0.0)
-        .width(swapchain.extent.width as f32)
-        .height(swapchain.extent.height as f32)
+        .width(presenter.extent.width as f32)
+        .height(presenter.extent.height as f32)
         .min_depth(0.0)
         .max_depth(1.0);
 
     let scissor = vk::Rect2D::default()
         .offset(vk::Offset2D::default())
-        .extent(swapchain.extent);
+        .extent(presenter.extent);
 
     let viewports = &[viewport];
     let scissors = &[scissor];
@@ -169,7 +169,7 @@ pub fn create_pipeline(
 
     let stages = &[vert_stage, frag_stage];
 
-    let color_attachment_formats = &[swapchain.format.format];
+    let color_attachment_formats = &[presenter.format.format];
     let mut rendering_info = vk::PipelineRenderingCreateInfo::default()
         .color_attachment_formats(color_attachment_formats)
         .depth_attachment_format(vk::Format::D32_SFLOAT_S8_UINT)

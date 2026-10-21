@@ -1,6 +1,6 @@
 use crate::device::logical::RenderDevice;
 use crate::error::RendererError;
-use crate::present::swapchain::Swapchain;
+use crate::present::presenter::Presenter;
 use ash::vk;
 use flux_ecs::Commands;
 use flux_ecs::Single;
@@ -75,7 +75,7 @@ impl Deref for CommandBuffers {
 pub fn create_command_buffer(
     device: Single<&RenderDevice>,
     command_pools: Single<&CommandPools>,
-    swapchain: Single<&Swapchain>,
+    presenter: Single<&Presenter>,
     mut commands: Commands,
 ) -> Result<(), RendererError> {
     debug!("Creating command buffer");
@@ -83,7 +83,7 @@ pub fn create_command_buffer(
     let allocate_info = vk::CommandBufferAllocateInfo::default()
         .command_pool(command_pools.graphics)
         .level(vk::CommandBufferLevel::PRIMARY)
-        .command_buffer_count(swapchain.images.len() as u32);
+        .command_buffer_count(presenter.image_count() as u32);
 
     let command_buffers = unsafe { device.allocate_command_buffers(&allocate_info)? };
     for (i, buffer) in command_buffers.iter().enumerate() {

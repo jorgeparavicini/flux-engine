@@ -1,193 +1,87 @@
-use crate::device::instance::Instance;
 use crate::device::logical::RenderDevice;
 use crate::error::RendererError;
 use crate::pipeline::descriptors::Descriptors;
 use crate::pipeline::graphics::Pipeline;
-use crate::present::swapchain::Swapchain;
+use crate::present::presenter::{Acquire, Frame, Presenter};
 use crate::render::commands::CommandBuffers;
 use crate::render::mesh::VulkanMesh;
 use crate::resource::depth::DepthBuffers;
 use ash::vk;
-use ash::vk::{Handle, IndexType};
-use flux_ecs::Commands;
+use ash::vk::IndexType;
 use flux_ecs::Query;
 use flux_ecs::Single;
 use flux_ecs::World;
-use log::debug;
 
-/// True while the swapchain no longer matches the surface; the recreation
+/// True while the presentation no longer matches the surface; the recreation
 /// systems in the render schedule run while set.
 #[derive(flux_ecs::Component, Default)]
-pub struct SwapchainOutdated(pub bool);
+pub struct PresentationOutdated(pub bool);
 
-pub fn swapchain_outdated(world: &World) -> bool {
+pub fn presentation_outdated(world: &World) -> bool {
     world
-        .singleton::<SwapchainOutdated>()
+        .singleton::<PresentationOutdated>()
         .is_some_and(|flag| flag.0)
 }
 
-pub fn clear_swapchain_outdated(mut flag: Single<&mut SwapchainOutdated>) {
+pub fn clear_presentation_outdated(mut flag: Single<&mut PresentationOutdated>) {
     flag.0 = false;
 }
 
-#[derive(flux_ecs::Component)]
-pub struct SyncObjects {
-    pub image_available_semaphores: Vec<vk::Semaphore>,
-    pub render_finished_semaphores: Vec<vk::Semaphore>,
-    pub in_flight_fences: Vec<vk::Fence>,
-    pub images_in_flight: Vec<vk::Fence>,
-}
-
-pub fn create_sync_objects(
-    device: Single<&RenderDevice>,
-    swapchain: Single<&Swapchain>,
-    mut commands: Commands,
-) -> Result<(), RendererError> {
-    let semaphore_info = vk::SemaphoreCreateInfo::default();
-    let fence_info = vk::FenceCreateInfo::default().flags(vk::FenceCreateFlags::SIGNALED);
-
-    let mut image_available_semaphores = Vec::with_capacity(swapchain.max_frames_in_flight);
-    let mut in_flight_fences = Vec::with_capacity(swapchain.max_frames_in_flight);
-
-    for i in 0..swapchain.max_frames_in_flight {
-        let semaphore = unsafe { device.create_semaphore(&semaphore_info, None)? };
-        device
-            .debug_utils
-            .set_name(semaphore, &format!("image available semaphore {i}"));
-        image_available_semaphores.push(semaphore);
-
-        let fence = unsafe { device.create_fence(&fence_info, None)? };
-        device
-            .debug_utils
-            .set_name(fence, &format!("in flight fence {i}"));
-        in_flight_fences.push(fence);
-    }
-
-    let mut render_finished_semaphores = Vec::with_capacity(swapchain.max_frames_in_flight);
-    for i in 0..swapchain.images.len() {
-        let semaphore = unsafe { device.create_semaphore(&semaphore_info, None)? };
-        device
-            .debug_utils
-            .set_name(semaphore, &format!("render finished semaphore {i}"));
-        render_finished_semaphores.push(semaphore);
-    }
-
-    let images_in_flight = swapchain.images.iter().map(|_| vk::Fence::null()).collect();
-
-    commands.insert_singleton(SyncObjects {
-        image_available_semaphores,
-        render_finished_semaphores,
-        in_flight_fences,
-        images_in_flight,
-    });
-
-    Ok(())
-}
-
-#[derive(Default, flux_ecs::Component)]
-pub struct FrameData {
-    pub frame_index: usize,
-}
-
+/// Renders and presents one frame. While the presenter is out of date the
+/// frame is skipped and the recreation systems take over.
 pub fn render(
-    instance: Single<&Instance>,
     device: Single<&RenderDevice>,
-    swapchain: Single<&Swapchain>,
-    command_buffers_res: Single<&CommandBuffers>,
+    mut presenter: Single<&mut Presenter>,
+    command_buffers: Single<&CommandBuffers>,
     depth_buffers: Single<&DepthBuffers>,
     pipeline: Single<&Pipeline>,
     meshes: Query<&VulkanMesh>,
     descriptors: Single<&Descriptors>,
-    mut sync_objects: Single<&mut SyncObjects>,
-    mut frame_data: Single<&mut FrameData>,
-    mut commands: Commands,
+    mut outdated: Single<&mut PresentationOutdated>,
 ) -> Result<(), RendererError> {
-    unsafe {
-        device.wait_for_fences(
-            &[sync_objects.in_flight_fences[frame_data.frame_index]],
-            true,
-            u64::MAX,
-        )?;
+    if presenter.needs_rebuild() {
+        outdated.0 = true;
+        return Ok(());
     }
 
-    let swapchain_device = ash::khr::swapchain::Device::new(&instance, &device);
-    let image_available_semaphore = sync_objects.image_available_semaphores[frame_data.frame_index];
-    let next_image_result = unsafe {
-        swapchain_device.acquire_next_image(
-            **swapchain,
-            u64::MAX,
-            image_available_semaphore,
-            vk::Fence::null(),
-        )
-    };
-
-    let image_index = match next_image_result {
-        Ok((image_index, _)) => image_index as usize,
-        Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => return Ok(()), // TODO Recreate swapchain
-        Err(e) => return Err(e.into()),
-    };
-
-    if !sync_objects.images_in_flight[image_index].is_null() {
-        unsafe {
-            device.wait_for_fences(
-                &[sync_objects.images_in_flight[image_index]],
-                true,
-                u64::MAX,
-            )?;
+    let frame = match presenter.acquire()? {
+        Acquire::Frame(frame) => frame,
+        Acquire::OutOfDate => {
+            outdated.0 = true;
+            return Ok(());
         }
-    }
+    };
 
-    sync_objects.images_in_flight[image_index] =
-        sync_objects.in_flight_fences[frame_data.frame_index];
-
-    let command_buffer = command_buffers_res.command_buffers[image_index];
-
+    let command_buffer = command_buffers.command_buffers[frame.image_index as usize];
     record_command_buffer(
         &device,
-        &command_buffer,
-        &swapchain,
-        image_index,
+        command_buffer,
+        &presenter,
+        &frame,
         &depth_buffers,
         &pipeline,
         meshes,
-        descriptors,
+        &descriptors,
     )?;
 
-    let wait_semaphores = &[image_available_semaphore];
-    let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
-    let command_buffers = &[command_buffers_res.command_buffers[image_index]];
-    let signal_semaphores = &[sync_objects.render_finished_semaphores[image_index]];
+    // The acquired image must be ready before color output; rendering
+    // completion releases both the presentation wait and the slot's fence.
+    let wait_semaphores = [frame.image_available];
+    let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
+    let submit_command_buffers = [command_buffer];
+    let signal_semaphores = [frame.render_finished];
     let submit_info = vk::SubmitInfo::default()
-        .wait_semaphores(wait_semaphores)
-        .wait_dst_stage_mask(wait_stages)
-        .command_buffers(command_buffers)
-        .signal_semaphores(signal_semaphores);
+        .wait_semaphores(&wait_semaphores)
+        .wait_dst_stage_mask(&wait_stages)
+        .command_buffers(&submit_command_buffers)
+        .signal_semaphores(&signal_semaphores);
 
-    let in_flight_fence = sync_objects.in_flight_fences[frame_data.frame_index];
-    unsafe {
-        device.reset_fences(&[in_flight_fence])?;
-        device.queue_submit(device.graphics.raw, &[submit_info], in_flight_fence)?;
+    unsafe { device.queue_submit(device.graphics.raw, &[submit_info], frame.in_flight)? };
+
+    presenter.present(&device, &frame)?;
+    if presenter.needs_rebuild() {
+        outdated.0 = true;
     }
-
-    let swapchains = &[swapchain.swapchain];
-    let image_indices = &[image_index as u32];
-    let present_info = vk::PresentInfoKHR::default()
-        .wait_semaphores(signal_semaphores)
-        .swapchains(swapchains)
-        .image_indices(image_indices);
-
-    let result = unsafe { swapchain_device.queue_present(device.present.raw, &present_info) };
-
-    let changed = result == Ok(true) || result == Err(vk::Result::ERROR_OUT_OF_DATE_KHR);
-
-    // TODO: Probably should handle explicit resizes here as well
-    if changed {
-        commands.insert_singleton(SwapchainOutdated(true));
-    } else {
-        result?;
-    }
-
-    frame_data.frame_index = (frame_data.frame_index + 1) % swapchain.max_frames_in_flight;
 
     Ok(())
 }
@@ -196,48 +90,18 @@ pub fn wait_device_idle(device: Single<&RenderDevice>) {
     device.wait_idle();
 }
 
-pub fn destroy_sync_objects(
-    device: Single<&RenderDevice>,
-    sync_objects: Single<&SyncObjects>,
-    mut commands: Commands,
-) {
-    debug!("Destroying sync objects");
-
-    for &semaphore in &sync_objects.image_available_semaphores {
-        unsafe {
-            device.destroy_semaphore(semaphore, None);
-        }
-    }
-
-    for &semaphore in &sync_objects.render_finished_semaphores {
-        unsafe {
-            device.destroy_semaphore(semaphore, None);
-        }
-    }
-
-    for &fence in &sync_objects.in_flight_fences {
-        unsafe {
-            device.destroy_fence(fence, None);
-        }
-    }
-
-    commands.remove_singleton::<SyncObjects>();
-}
-
-pub fn wait_for_device_idle(device: Single<&RenderDevice>) {
-    device.wait_idle();
-}
-
+#[allow(clippy::too_many_arguments)]
 fn record_command_buffer(
-    device: &Single<&RenderDevice>,
-    command_buffer: &vk::CommandBuffer,
-    swapchain: &Single<&Swapchain>,
-    image_index: usize,
-    depth_buffers: &Single<&DepthBuffers>,
-    pipeline: &Single<&Pipeline>,
+    device: &RenderDevice,
+    command_buffer: vk::CommandBuffer,
+    presenter: &Presenter,
+    frame: &Frame,
+    depth_buffers: &DepthBuffers,
+    pipeline: &Pipeline,
     meshes: Query<&VulkanMesh>,
-    descriptors: Single<&Descriptors>,
+    descriptors: &Descriptors,
 ) -> Result<(), vk::Result> {
+    let image = presenter.image(frame.image_index);
     unsafe {
         let inheritance = vk::CommandBufferInheritanceInfo::default();
 
@@ -245,17 +109,17 @@ fn record_command_buffer(
             .flags(vk::CommandBufferUsageFlags::empty())
             .inheritance_info(&inheritance);
 
-        device.begin_command_buffer(*command_buffer, &info)?;
+        device.begin_command_buffer(command_buffer, &info)?;
         let pass_label = device
             .debug_utils
-            .cmd_label_scope(*command_buffer, "forward pass");
+            .cmd_label_scope(command_buffer, "forward pass");
 
         let image_barrier_to_render = vk::ImageMemoryBarrier::default()
             .src_access_mask(vk::AccessFlags::empty()) // No need to wait for previous operations
             .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE) // We are preparing to write
             .old_layout(vk::ImageLayout::UNDEFINED) // We don't care about the previous layout/contents
             .new_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL) // Layout needed for rendering
-            .image(swapchain.images[image_index])
+            .image(image)
             .subresource_range(
                 vk::ImageSubresourceRange::default()
                     .aspect_mask(vk::ImageAspectFlags::COLOR)
@@ -264,7 +128,7 @@ fn record_command_buffer(
             );
 
         device.cmd_pipeline_barrier(
-            *command_buffer,
+            command_buffer,
             vk::PipelineStageFlags::TOP_OF_PIPE, // Source stage
             vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT, // Destination stage
             vk::DependencyFlags::empty(),
@@ -275,7 +139,7 @@ fn record_command_buffer(
 
         let render_area = vk::Rect2D::default()
             .offset(vk::Offset2D::default())
-            .extent(swapchain.extent);
+            .extent(presenter.extent);
 
         let color_clear_value = vk::ClearValue {
             color: vk::ClearColorValue {
@@ -290,9 +154,8 @@ fn record_command_buffer(
             },
         };
 
-        // TODO: Compare values with framebuffer attachments
         let color_attachment_info = vk::RenderingAttachmentInfo::default()
-            .image_view(swapchain.image_views[image_index])
+            .image_view(presenter.view(frame.image_index))
             .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
             .load_op(vk::AttachmentLoadOp::CLEAR)
             .store_op(vk::AttachmentStoreOp::STORE)
@@ -305,44 +168,40 @@ fn record_command_buffer(
             .store_op(vk::AttachmentStoreOp::STORE)
             .clear_value(depth_clear_value);
 
-        let color_attachments = &[color_attachment_info];
+        let color_attachments = [color_attachment_info];
         let rendering_info = vk::RenderingInfo::default()
             .render_area(render_area)
             .layer_count(1)
-            .color_attachments(color_attachments)
+            .color_attachments(&color_attachments)
             .depth_attachment(&depth_attachment_info);
 
-        device.cmd_begin_rendering(*command_buffer, &rendering_info);
-        device.cmd_bind_pipeline(
-            *command_buffer,
-            vk::PipelineBindPoint::GRAPHICS,
-            ***pipeline,
-        );
+        device.cmd_begin_rendering(command_buffer, &rendering_info);
+        device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, **pipeline);
 
         device.cmd_bind_descriptor_sets(
-            *command_buffer,
+            command_buffer,
             vk::PipelineBindPoint::GRAPHICS,
             pipeline.pipeline_layout,
             0,
-            &[descriptors.descriptor_sets[image_index]],
+            &[descriptors.descriptor_sets[frame.image_index as usize]],
             &[],
         );
 
         meshes.for_each(|mesh| {
-            device.cmd_bind_vertex_buffers(*command_buffer, 0, &[mesh.vertex_buffer], &[0]);
-            device.cmd_bind_index_buffer(*command_buffer, mesh.index_buffer, 0, IndexType::UINT32);
+            device.cmd_bind_vertex_buffers(command_buffer, 0, &[mesh.vertex_buffer], &[0]);
+            device.cmd_bind_index_buffer(command_buffer, mesh.index_buffer, 0, IndexType::UINT32);
 
-            device.cmd_draw_indexed(*command_buffer, mesh.num_indices, 1, 0, 0, 0);
+            device.cmd_draw_indexed(command_buffer, mesh.num_indices, 1, 0, 0, 0);
         });
 
-        device.cmd_end_rendering(*command_buffer);
+        device.cmd_end_rendering(command_buffer);
 
         let image_barrier_to_present = vk::ImageMemoryBarrier::default()
             .src_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
             .dst_access_mask(vk::AccessFlags::empty())
             .old_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
             .new_layout(vk::ImageLayout::PRESENT_SRC_KHR)
-            .image(swapchain.images[image_index])
+            .image(image)
             .subresource_range(
                 vk::ImageSubresourceRange::default()
                     .aspect_mask(vk::ImageAspectFlags::COLOR)
@@ -351,7 +210,7 @@ fn record_command_buffer(
             );
 
         device.cmd_pipeline_barrier(
-            *command_buffer,
+            command_buffer,
             vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
             vk::PipelineStageFlags::BOTTOM_OF_PIPE,
             vk::DependencyFlags::empty(),
@@ -361,7 +220,7 @@ fn record_command_buffer(
         );
 
         drop(pass_label);
-        device.end_command_buffer(*command_buffer)?;
+        device.end_command_buffer(command_buffer)?;
 
         Ok(())
     }

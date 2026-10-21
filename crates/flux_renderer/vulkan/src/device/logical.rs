@@ -37,8 +37,6 @@ pub struct RenderDevice {
     pub graphics: Queue,
     pub present: Queue,
     pub transfer: Queue,
-    pub surface_formats: Vec<vk::SurfaceFormatKHR>,
-    pub present_modes: Vec<vk::PresentModeKHR>,
 }
 
 impl RenderDevice {
@@ -101,8 +99,6 @@ impl RenderDevice {
             graphics,
             present,
             transfer,
-            surface_formats: physical_device.formats.clone(),
-            present_modes: physical_device.present_modes.clone(),
         })
     }
 

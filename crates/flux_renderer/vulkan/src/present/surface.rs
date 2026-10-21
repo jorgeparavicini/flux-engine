@@ -1,6 +1,5 @@
 use crate::device::instance::Instance;
 use crate::error::RendererError;
-use ash::khr::surface;
 use ash::vk;
 use flux_ecs::Commands;
 use flux_ecs::Single;
@@ -40,17 +39,4 @@ pub fn create_surface(
     commands.insert_singleton(VulkanSurface { surface });
 
     Ok(())
-}
-
-pub fn destroy_surface(
-    surface: Single<&VulkanSurface>,
-    instance: Single<&Instance>,
-    mut commands: Commands,
-) {
-    info!("Destroying vulkan surface");
-    unsafe {
-        let surface_loader = surface::Instance::new(instance.entry(), &instance);
-        surface::Instance::destroy_surface(&surface_loader, **surface, None)
-    }
-    commands.remove_singleton::<VulkanSurface>();
 }

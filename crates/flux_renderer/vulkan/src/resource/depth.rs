@@ -1,7 +1,7 @@
 use crate::device::instance::Instance;
 use crate::device::logical::RenderDevice;
 use crate::error::RendererError;
-use crate::present::swapchain::Swapchain;
+use crate::present::presenter::Presenter;
 use crate::resource::image::{create_image, create_image_view};
 use ash::vk;
 use flux_ecs::Commands;
@@ -19,7 +19,7 @@ pub struct DepthBuffers {
 pub fn create_depth_buffers(
     instance: Single<&Instance>,
     device: Single<&RenderDevice>,
-    swapchain: Single<&Swapchain>,
+    presenter: Single<&Presenter>,
     mut commands: Commands,
 ) -> Result<(), RendererError> {
     debug!("Creating depth buffers");
@@ -28,8 +28,8 @@ pub fn create_depth_buffers(
 
     let (depth_image, depth_image_memory) = create_image(
         &device,
-        swapchain.extent.width,
-        swapchain.extent.height,
+        presenter.extent.width,
+        presenter.extent.height,
         depth_format,
         vk::ImageTiling::OPTIMAL,
         vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,

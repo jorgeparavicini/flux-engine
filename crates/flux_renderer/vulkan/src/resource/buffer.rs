@@ -1,6 +1,6 @@
 use crate::device::logical::RenderDevice;
 use crate::error::RendererError;
-use crate::present::swapchain::Swapchain;
+use crate::present::presenter::Presenter;
 use crate::render::commands::CommandPools;
 use crate::resource::image::get_memory_type_index;
 use ash::vk;
@@ -160,16 +160,16 @@ pub fn create_index_buffer(
 
 pub fn create_uniform_buffer(
     device: Single<&RenderDevice>,
-    swapchain: Single<&Swapchain>,
+    presenter: Single<&Presenter>,
     mut commands: Commands,
 ) -> Result<(), RendererError> {
     debug!("Creating uniform buffer");
 
     let mut buffers = UniformBuffers {
-        buffers: Vec::with_capacity(swapchain.images.len()),
+        buffers: Vec::with_capacity(presenter.image_count()),
     };
 
-    for i in 0..swapchain.images.len() {
+    for i in 0..presenter.image_count() {
         let (uniform_buffer, uniform_buffer_memory) = create_buffer(
             &device,
             size_of::<UniformBufferObject>() as u64,

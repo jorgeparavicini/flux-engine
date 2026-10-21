@@ -1,7 +1,7 @@
 use crate::device::logical::RenderDevice;
 use crate::error::RendererError;
 use crate::pipeline::graphics::Pipeline;
-use crate::present::swapchain::Swapchain;
+use crate::present::presenter::Presenter;
 use crate::resource::buffer::{UniformBufferObject, UniformBuffers};
 use ash::vk;
 use flux_ecs::Commands;
@@ -17,12 +17,13 @@ pub struct Descriptors {
 pub fn create_descriptors(
     device: Single<&RenderDevice>,
     pipeline: Single<&Pipeline>,
-    swapchain: Single<&Swapchain>,
+    presenter: Single<&Presenter>,
     uniform_buffer: Single<&UniformBuffers>,
     mut commands: Commands,
 ) -> Result<(), RendererError> {
-    let pool = create_descriptor_pool(&device, &swapchain)?;
-    let sets = create_descriptor_sets(&device, &pipeline, &swapchain, pool, &uniform_buffer)?;
+    let image_count = presenter.image_count();
+    let pool = create_descriptor_pool(&device, image_count)?;
+    let sets = create_descriptor_sets(&device, &pipeline, image_count, pool, &uniform_buffer)?;
 
     commands.insert_singleton(Descriptors {
         descriptor_pool: pool,
@@ -34,20 +35,20 @@ pub fn create_descriptors(
 
 fn create_descriptor_pool(
     device: &RenderDevice,
-    swapchain: &Swapchain,
+    image_count: usize,
 ) -> Result<vk::DescriptorPool, vk::Result> {
     let ubo_size = vk::DescriptorPoolSize::default()
         .ty(vk::DescriptorType::UNIFORM_BUFFER)
-        .descriptor_count(swapchain.image_views.len() as u32);
+        .descriptor_count(image_count as u32);
 
     let sampler_size = vk::DescriptorPoolSize::default()
         .ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-        .descriptor_count(swapchain.image_views.len() as u32);
+        .descriptor_count(image_count as u32);
 
     let pool_sizes = &[ubo_size, sampler_size];
     let info = vk::DescriptorPoolCreateInfo::default()
         .pool_sizes(pool_sizes)
-        .max_sets(swapchain.image_views.len() as u32);
+        .max_sets(image_count as u32);
 
     unsafe { device.create_descriptor_pool(&info, None) }
 }
@@ -55,18 +56,18 @@ fn create_descriptor_pool(
 fn create_descriptor_sets(
     device: &RenderDevice,
     pipeline: &Pipeline,
-    swapchain: &Swapchain,
+    image_count: usize,
     pool: vk::DescriptorPool,
     uniform_buffers: &UniformBuffers,
 ) -> Result<Vec<vk::DescriptorSet>, vk::Result> {
-    let layouts = vec![pipeline.descriptor_set_layout; swapchain.image_views.len()];
+    let layouts = vec![pipeline.descriptor_set_layout; image_count];
     let info = vk::DescriptorSetAllocateInfo::default()
         .descriptor_pool(pool)
         .set_layouts(&layouts);
 
     let sets = unsafe { device.allocate_descriptor_sets(&info)? };
 
-    for i in 0..swapchain.images.len() {
+    for i in 0..image_count {
         let info = vk::DescriptorBufferInfo::default()
             .buffer(uniform_buffers.buffers[i].buffer)
             .offset(0)

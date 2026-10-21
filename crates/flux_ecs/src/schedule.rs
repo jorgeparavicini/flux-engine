@@ -88,8 +88,8 @@ impl Schedule {
     /// The conflicting, unordered system pairs of this schedule.
     ///
     /// Runs the schedule across threads: systems whose access does not
-    /// conflict — no shared component with a write over intersecting
-    /// archetypes — run concurrently.
+    /// conflict (no shared component with a write over intersecting
+    /// archetypes) run concurrently.
     ///
     /// Deterministic: versions and command application follow the compiled
     /// order regardless of thread timing. Commands apply at wave boundaries,
@@ -101,7 +101,7 @@ impl Schedule {
         for &index in &order {
             self.entries[index].system.initialize(world);
         }
-        // Distinct version per system, in topological order — matches serial.
+        // Distinct version per system, in topological order, matching the serial executor.
         let mut version = vec![0u64; self.entries.len()];
         for &index in &order {
             version[index] = world.bump_version();
@@ -192,8 +192,8 @@ impl Schedule {
         true
     }
 
-    /// Ambiguities are legal — the serial executor runs them in insertion
-    /// order — but their relative order is not part of the schedule's
+    /// Ambiguities are legal (the serial executor runs them in insertion
+    /// order), but their relative order is not part of the schedule's
     /// contract.
     pub fn ambiguities(&mut self) -> &[Ambiguity] {
         self.compile();
@@ -301,7 +301,7 @@ impl Schedule {
                         .find(|t| {
                             b.terms()
                                 .iter()
-                                .any(|o| o.key == t.key && (o.write && t.write))
+                                .any(|o| o.key == t.key && (o.write || t.write))
                         })
                         .map(|t| t.key)
                         .expect("conflict implies a contested key");
@@ -552,6 +552,16 @@ mod tests {
     }
 
     #[test]
+    fn a_read_contesting_a_write_is_reported_not_a_panic() {
+        let mut schedule = Schedule::new();
+        schedule.add(writes_a);
+        schedule.add(reads_a);
+        let ambiguities = schedule.ambiguities();
+        assert_eq!(ambiguities.len(), 1);
+        assert_eq!(ambiguities[0].key, A::KEY);
+    }
+
+    #[test]
     fn ordering_resolves_the_ambiguity() {
         const W: SystemLabel = SystemLabel("w");
         let mut schedule = Schedule::new();
@@ -665,7 +675,7 @@ mod tests {
 
     #[test]
     fn disjoint_writers_of_the_same_component_run_concurrently() {
-        // Both write N — component-level conflict — but over disjoint
+        // Both write N, a component-level conflict, but over disjoint
         // archetypes: {N, Flag} vs {N}. The refinement must let them run at
         // once. Each announces itself and briefly waits for the other; if they
         // were serialized, the first would time out without seeing the second.
