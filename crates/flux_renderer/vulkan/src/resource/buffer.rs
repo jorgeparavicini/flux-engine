@@ -6,51 +6,13 @@ use crate::resource::image::get_memory_type_index;
 use ash::vk;
 use flux_ecs::Commands;
 use flux_ecs::Single;
-use glam::{Mat4, Vec2, Vec3};
+use glam::Mat4;
 use log::debug;
-use std::ptr::copy_nonoverlapping as memcpy;
-
-const VERTICES: [Vertex; 3] = [
-    Vertex {
-        pos: Vec3::new(-0.5, -0.5, 0.0),
-        color: Vec3::new(1.0, 0.4, 0.0),
-        tex_coords: Vec2::new(0.0, 1.0),
-    },
-    Vertex {
-        pos: Vec3::new(0.5, -0.5, 0.0),
-        color: Vec3::new(0.0, 1.0, 0.0),
-        tex_coords: Vec2::new(1.0, 1.0),
-    },
-    Vertex {
-        pos: Vec3::new(0.0, 0.5, 0.0),
-        color: Vec3::new(0.0, 0.0, 1.0),
-        tex_coords: Vec2::new(1.0, 0.0),
-    },
-];
-
-#[repr(C)]
-pub struct Vertex {
-    pos: Vec3,
-    color: Vec3,
-    tex_coords: Vec2,
-}
 
 pub struct UniformBufferObject {
     pub model: Mat4,
     pub view: Mat4,
     pub projection: Mat4,
-}
-
-#[derive(flux_ecs::Component)]
-pub struct VertexBuffer {
-    pub buffer: vk::Buffer,
-    pub memory: vk::DeviceMemory,
-}
-
-#[derive(flux_ecs::Component)]
-pub struct IndexBuffer {
-    pub buffer: vk::Buffer,
-    pub memory: vk::DeviceMemory,
 }
 
 pub struct UniformBuffer {
@@ -61,101 +23,6 @@ pub struct UniformBuffer {
 #[derive(flux_ecs::Component)]
 pub struct UniformBuffers {
     pub buffers: Vec<UniformBuffer>,
-}
-
-pub fn create_vertex_buffer(
-    device: Single<&RenderDevice>,
-    command_pools: Single<&CommandPools>,
-    mut commands: Commands,
-) -> Result<(), RendererError> {
-    debug!("Creating vertex buffer");
-
-    let size = (size_of::<Vertex>() * VERTICES.len()) as u64;
-
-    let (staging_buffer, staging_buffer_memory) = create_buffer(
-        &device,
-        size,
-        vk::BufferUsageFlags::TRANSFER_SRC,
-        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-    )?;
-
-    let memory =
-        unsafe { device.map_memory(staging_buffer_memory, 0, size, vk::MemoryMapFlags::empty())? };
-
-    unsafe { memcpy(VERTICES.as_ptr(), memory.cast(), VERTICES.len()) }
-
-    unsafe { device.unmap_memory(staging_buffer_memory) };
-
-    let (vertex_buffer, vertex_buffer_memory) = create_buffer(
-        &device,
-        size,
-        vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
-        vk::MemoryPropertyFlags::DEVICE_LOCAL,
-    )?;
-
-    copy_buffer(&device, &command_pools, staging_buffer, vertex_buffer, size)?;
-
-    unsafe {
-        device.destroy_buffer(staging_buffer, None);
-        device.free_memory(staging_buffer_memory, None);
-    }
-
-    let vertex_buffer_resource = VertexBuffer {
-        buffer: vertex_buffer,
-        memory: vertex_buffer_memory,
-    };
-
-    commands.insert_singleton(vertex_buffer_resource);
-
-    Ok(())
-}
-
-pub fn create_index_buffer(
-    device: Single<&RenderDevice>,
-    command_pools: Single<&CommandPools>,
-    mut commands: Commands,
-) -> Result<(), RendererError> {
-    debug!("Creating index buffer");
-
-    let indices: [u32; 3] = [0, 1, 2];
-    let size = (size_of::<u32>() * indices.len()) as u64;
-
-    let (staging_buffer, staging_buffer_memory) = create_buffer(
-        &device,
-        size,
-        vk::BufferUsageFlags::TRANSFER_SRC,
-        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-    )?;
-
-    let memory =
-        unsafe { device.map_memory(staging_buffer_memory, 0, size, vk::MemoryMapFlags::empty())? };
-
-    unsafe {
-        memcpy(indices.as_ptr() as *const u8, memory.cast(), indices.len());
-    }
-
-    unsafe { device.unmap_memory(staging_buffer_memory) };
-
-    let (index_buffer, index_buffer_memory) = create_buffer(
-        &device,
-        size,
-        vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER,
-        vk::MemoryPropertyFlags::DEVICE_LOCAL,
-    )?;
-
-    copy_buffer(&device, &command_pools, staging_buffer, index_buffer, size)?;
-
-    unsafe {
-        device.destroy_buffer(staging_buffer, None);
-        device.free_memory(staging_buffer_memory, None);
-    }
-
-    commands.insert_singleton(IndexBuffer {
-        buffer: index_buffer,
-        memory: index_buffer_memory,
-    });
-
-    Ok(())
 }
 
 pub fn create_uniform_buffer(
@@ -278,20 +145,10 @@ fn end_single_time_commands(
     Ok(())
 }
 
-pub fn destroy_buffers(
-    device: Single<&RenderDevice>,
-    vertex_buffer: Single<&VertexBuffer>,
-    index_buffer: Single<&IndexBuffer>,
-    uniform_buffers: Single<&UniformBuffers>,
-) {
+pub fn destroy_buffers(device: Single<&RenderDevice>, uniform_buffers: Single<&UniformBuffers>) {
     debug!("Destroying buffers");
 
     unsafe {
-        device.destroy_buffer(vertex_buffer.buffer, None);
-        device.free_memory(vertex_buffer.memory, None);
-        device.destroy_buffer(index_buffer.buffer, None);
-        device.free_memory(index_buffer.memory, None);
-
         for uniform_buffer in &uniform_buffers.buffers {
             device.destroy_buffer(uniform_buffer.buffer, None);
             device.free_memory(uniform_buffer.memory, None);

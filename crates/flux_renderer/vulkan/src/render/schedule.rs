@@ -12,9 +12,7 @@ use crate::render::frame::{
     wait_device_idle,
 };
 use crate::render::mesh::{CoolVertex, MeshComponent, create_buffers};
-use crate::resource::buffer::{
-    create_index_buffer, create_uniform_buffer, create_vertex_buffer, destroy_buffers,
-};
+use crate::resource::buffer::{create_uniform_buffer, destroy_buffers};
 use crate::resource::depth::{create_depth_buffers, destroy_depth_buffers};
 use flux_ecs::{Schedule, World};
 use flux_renderer_api::mesh::Mesh;
@@ -53,8 +51,6 @@ pub fn startup_schedule() -> Schedule {
     schedule.add(create_pipeline);
     schedule.add(create_depth_buffers);
     schedule.add(create_command_pools);
-    schedule.add(create_vertex_buffer);
-    schedule.add(create_index_buffer);
     schedule.add(create_uniform_buffer);
     schedule.add(create_descriptors);
     schedule.add(create_command_buffer);
