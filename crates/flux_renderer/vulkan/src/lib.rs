@@ -1,5 +1,6 @@
 mod device;
 mod error;
+mod memory;
 mod pipeline;
 mod present;
 mod render;

@@ -16,4 +16,11 @@ pub enum RendererError {
     UnsupportedLoader { found: String, minimum: String },
     #[error("required instance extensions are missing: {0:?}")]
     MissingInstanceExtensions(Vec<String>),
+    #[error(
+        "no compatible memory type for {usage:?} within the resource's type mask {type_bits:#b}"
+    )]
+    NoCompatibleMemoryType {
+        usage: crate::memory::allocator::MemoryUsage,
+        type_bits: u32,
+    },
 }
