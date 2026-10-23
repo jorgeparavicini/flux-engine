@@ -1,5 +1,6 @@
 use crate::device::instance::{create_instance, destroy_instance};
 use crate::device::logical::{create_render_device, destroy_render_device};
+use crate::memory::gpu_memory::{create_gpu_memory, destroy_gpu_memory};
 use crate::pipeline::descriptors::{create_descriptors, destroy_descriptors};
 use crate::pipeline::graphics::{create_pipeline, destroy_pipeline};
 use crate::present::presenter::{create_presenter, destroy_presenter, rebuild_presenter};
@@ -47,6 +48,7 @@ pub fn startup_schedule() -> Schedule {
     schedule.add(create_instance);
     schedule.add(create_surface);
     schedule.add(create_render_device);
+    schedule.add(create_gpu_memory);
     schedule.add(create_presenter);
     schedule.add(create_pipeline);
     schedule.add(create_depth_buffers);
@@ -103,6 +105,7 @@ pub fn shutdown_schedule() -> Schedule {
     schedule.add(destroy_depth_buffers);
     schedule.add(destroy_pipeline);
     schedule.add(destroy_presenter);
+    schedule.add(destroy_gpu_memory);
     schedule.add(destroy_render_device);
     schedule.add(destroy_instance);
     schedule

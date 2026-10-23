@@ -21,6 +21,9 @@ struct FrameSlot {
 
 /// A frame the renderer may record into and present.
 pub struct Frame {
+    /// Which in-flight slot this frame occupies; the retire queue advances
+    /// by it.
+    pub slot: usize,
     /// Which swapchain image was acquired.
     pub image_index: u32,
     /// Signaled when the image is ready to be rendered to; wait on it before
@@ -217,6 +220,7 @@ impl Presenter {
         unsafe { self.device.reset_fences(&[in_flight])? };
 
         Ok(Acquire::Frame(Frame {
+            slot: self.current_slot,
             image_index,
             image_available,
             render_finished: self.render_finished[image_index as usize],

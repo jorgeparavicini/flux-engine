@@ -38,6 +38,12 @@ pub struct Allocation {
     pub mapped: Option<NonNull<u8>>,
 }
 
+// SAFETY: the mapped pointer is uniquely owned by the allocation and only
+// dereferenced through exclusive access to the owning resource.
+unsafe impl Send for Allocation {}
+// SAFETY: a shared allocation only ever reads the pointer value itself.
+unsafe impl Sync for Allocation {}
+
 /// An allocation strategy: hands out and takes back GPU memory.
 pub trait GpuAllocator {
     fn alloc(&mut self, request: &AllocRequest) -> Result<Allocation, RendererError>;

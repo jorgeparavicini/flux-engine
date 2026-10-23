@@ -1,5 +1,6 @@
 use crate::device::logical::RenderDevice;
 use crate::error::RendererError;
+use crate::memory::gpu_memory::GpuMemory;
 use crate::pipeline::descriptors::Descriptors;
 use crate::pipeline::graphics::Pipeline;
 use crate::present::presenter::{Acquire, Frame, Presenter};
@@ -38,6 +39,7 @@ pub fn render(
     meshes: Query<&VulkanMesh>,
     descriptors: Single<&Descriptors>,
     mut outdated: Single<&mut PresentationOutdated>,
+    mut memory: Single<&mut GpuMemory>,
 ) -> Result<(), RendererError> {
     if presenter.needs_rebuild() {
         outdated.0 = true;
@@ -51,6 +53,7 @@ pub fn render(
             return Ok(());
         }
     };
+    memory.advance(frame.slot);
 
     let command_buffer = command_buffers.command_buffers[frame.image_index as usize];
     record_command_buffer(

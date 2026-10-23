@@ -1,13 +1,12 @@
 //! Deferred destruction: resources dropped mid-frame are destroyed only once
 //! the GPU provably finished every frame that could reference them.
 
-// ── implementation goes here; the tests below are the spec ──────────────────
-//
-// `RetireBins<T>` is the Vulkan-free core: `retire` parks an item as
-// pending; `advance(slot)` is called once per frame right after that slot's
-// fence wait, returns everything previously binned to the slot (now provably
-// unreachable by the GPU), and bins the pending items; `drain` empties
-// everything for shutdown, after a device-wide idle.
+use crate::memory::allocator::{Allocation, GpuAllocator};
+use ash::vk;
+use std::{
+    option::IterMut,
+    sync::mpsc::{Receiver, Sender, channel},
+};
 
 /// Slot-tagged holding bins for retired items. Vulkan-free; the caller
 /// supplies the frame slot whose fence wait just completed.
@@ -48,6 +47,106 @@ impl<T> RetireBins<T> {
             drained.append(bin);
         }
         drained
+    }
+}
+
+/// A handle whose destruction is deferred until the GPU provably finished
+/// with it.
+pub enum Retired {
+    Buffer(vk::Buffer),
+    Image(vk::Image),
+    ImageView(vk::ImageView),
+    Memory(Allocation),
+}
+
+/// A cloneable hand-in for retired handles; resource wrappers send their
+/// parts here from `Drop`.
+#[derive(Clone)]
+pub struct Retirer(Sender<Retired>);
+
+impl Retirer {
+    #[cfg(test)]
+    pub(crate) fn for_tests(sender: Sender<Retired>) -> Self {
+        Self(sender)
+    }
+
+    /// Hands an item over for deferred destruction. A send after the queue
+    /// is gone is deliberately ignored: by then teardown has idled the
+    /// device and immediate destruction was already safe.
+    pub fn retire(&self, item: Retired) {
+        let _ = self.0.send(item);
+    }
+}
+
+/// Collects retired handles and destroys them once their frame slot's fence
+/// wait proves the GPU is done.
+pub struct RetireQueue {
+    device: ash::Device,
+    sender: Sender<Retired>,
+    receiver: Receiver<Retired>,
+    bins: RetireBins<Retired>,
+}
+
+impl RetireQueue {
+    /// Implementation checklist:
+    /// 1. one `channel()`; keep both ends (senders are cloned on demand)
+    /// 2. bins sized to `slots`
+    #[must_use]
+    pub fn new(device: ash::Device, slots: usize) -> Self {
+        let (sender, receiver) = channel();
+        Self {
+            device,
+            sender,
+            receiver,
+            bins: RetireBins::new(slots),
+        }
+    }
+
+    /// A new hand-in for resource wrappers.
+    #[must_use]
+    pub fn retirer(&self) -> Retirer {
+        Retirer(self.sender.clone())
+    }
+
+    /// Called once per frame after `slot`'s fence wait: bins everything
+    /// retired since the last frame and destroys what the wait released.
+    ///
+    /// Implementation checklist:
+    /// 1. `try_recv` until empty, `bins.retire` each
+    /// 2. `bins.advance(slot)`; destroy every released item (match on
+    ///    [`Retired`]; `Memory` goes back through `allocator.free`)
+    pub fn advance(&mut self, slot: usize, allocator: &mut dyn GpuAllocator) {
+        self.retire_received();
+
+        let resources = self.bins.advance(slot);
+        self.destroy_retired(allocator, resources);
+    }
+
+    /// Destroys everything pending, for shutdown after a device-wide idle.
+    pub fn drain(&mut self, allocator: &mut dyn GpuAllocator) {
+        self.retire_received();
+
+        let resources = self.bins.drain();
+        self.destroy_retired(allocator, resources);
+    }
+
+    fn retire_received(&mut self) {
+        while let Ok(item) = self.receiver.try_recv() {
+            self.bins.retire(item);
+        }
+    }
+
+    fn destroy_retired(&self, allocator: &mut dyn GpuAllocator, resources: Vec<Retired>) {
+        resources.into_iter().for_each(|released| unsafe {
+            match released {
+                Retired::Buffer(buffer) => self.device.destroy_buffer(buffer, None),
+                Retired::Image(image) => self.device.destroy_image(image, None),
+                Retired::ImageView(image_view) => {
+                    self.device.destroy_image_view(image_view, None);
+                }
+                Retired::Memory(allocation) => allocator.free(allocation),
+            }
+        });
     }
 }
 
