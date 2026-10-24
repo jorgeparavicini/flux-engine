@@ -23,4 +23,8 @@ pub enum RendererError {
         usage: crate::memory::allocator::MemoryUsage,
         type_bits: u32,
     },
+    #[error("the staging region cannot hold another {requested} bytes this frame")]
+    StagingFull { requested: u64 },
+    #[error("the device supports none of the candidate depth formats")]
+    NoSupportedDepthFormat,
 }

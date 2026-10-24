@@ -9,14 +9,16 @@ use crate::render::commands::{
     create_command_buffer, create_command_pools, destroy_command_buffers, destroy_command_pools,
 };
 use crate::render::frame::{
-    PresentationOutdated, clear_presentation_outdated, presentation_outdated, render,
-    wait_device_idle,
+    PresentationOutdated, clear_presentation_outdated, presentation_outdated, presentation_rebuilt,
+    render, wait_device_idle,
 };
-use crate::render::mesh::{CoolVertex, MeshComponent, create_buffers};
-use crate::resource::buffer::{create_uniform_buffer, destroy_buffers};
-use crate::resource::depth::{create_depth_buffers, destroy_depth_buffers};
-use flux_ecs::{Schedule, World};
+use crate::render::mesh::{CoolVertex, MeshComponent, VulkanMesh, upload_meshes};
+use crate::resource::buffer::{UniformBuffers, create_uniform_buffers};
+use crate::resource::depth::{DepthBuffer, create_depth_buffer};
+use crate::resource::upload::{StagingRing, Uploader, create_upload_path};
+use flux_ecs::{Commands, Entity, Query, Schedule, World};
 use flux_renderer_api::mesh::Mesh;
+use log::debug;
 
 /// Inserts the renderer's initial state: the demo mesh and the presentation
 /// flag.
@@ -49,20 +51,21 @@ pub fn startup_schedule() -> Schedule {
     schedule.add(create_surface);
     schedule.add(create_render_device);
     schedule.add(create_gpu_memory);
+    schedule.add(create_upload_path);
     schedule.add(create_presenter);
     schedule.add(create_pipeline);
-    schedule.add(create_depth_buffers);
+    schedule.add(create_depth_buffer);
     schedule.add(create_command_pools);
-    schedule.add(create_uniform_buffer);
+    schedule.add(create_uniform_buffers);
     schedule.add(create_descriptors);
     schedule.add(create_command_buffer);
-    schedule.add(create_buffers);
+    schedule.add(upload_meshes);
     schedule
 }
 
 /// Renders one frame. When the presentation is out of date, the presenter is
-/// rebuilt and its dependents are recreated in the same pass, gated on
-/// [`PresentationOutdated`].
+/// rebuilt and, once that succeeds, its dependents are recreated in the same
+/// pass.
 pub fn render_schedule() -> Schedule {
     let mut schedule = Schedule::new();
     schedule.add(render);
@@ -71,27 +74,24 @@ pub fn render_schedule() -> Schedule {
         .run_if(presentation_outdated);
     schedule
         .add(destroy_descriptors)
-        .run_if(presentation_outdated);
-    schedule
-        .add(destroy_depth_buffers)
-        .run_if(presentation_outdated);
+        .run_if(presentation_rebuilt);
     schedule
         .add(destroy_command_buffers)
-        .run_if(presentation_outdated);
-    schedule.add(destroy_pipeline).run_if(presentation_outdated);
-    schedule.add(create_pipeline).run_if(presentation_outdated);
+        .run_if(presentation_rebuilt);
+    schedule.add(destroy_pipeline).run_if(presentation_rebuilt);
+    schedule.add(create_pipeline).run_if(presentation_rebuilt);
     schedule
-        .add(create_depth_buffers)
-        .run_if(presentation_outdated);
+        .add(create_depth_buffer)
+        .run_if(presentation_rebuilt);
     schedule
         .add(create_descriptors)
-        .run_if(presentation_outdated);
+        .run_if(presentation_rebuilt);
     schedule
         .add(create_command_buffer)
-        .run_if(presentation_outdated);
+        .run_if(presentation_rebuilt);
     schedule
         .add(clear_presentation_outdated)
-        .run_if(presentation_outdated);
+        .run_if(presentation_rebuilt);
     schedule
 }
 
@@ -100,13 +100,23 @@ pub fn shutdown_schedule() -> Schedule {
     let mut schedule = Schedule::new();
     schedule.add(wait_device_idle);
     schedule.add(destroy_descriptors);
-    schedule.add(destroy_buffers);
     schedule.add(destroy_command_pools);
-    schedule.add(destroy_depth_buffers);
     schedule.add(destroy_pipeline);
+    schedule.add(release_gpu_resources);
     schedule.add(destroy_presenter);
     schedule.add(destroy_gpu_memory);
     schedule.add(destroy_render_device);
     schedule.add(destroy_instance);
     schedule
+}
+
+/// Drops every owner of GPU memory so their retirements reach the memory
+/// hub's final drain.
+fn release_gpu_resources(meshes: Query<(Entity, &VulkanMesh)>, mut commands: Commands) {
+    debug!("Releasing GPU resources");
+    meshes.for_each(|(entity, _)| commands.remove::<VulkanMesh>(entity));
+    commands.remove_singleton::<UniformBuffers>();
+    commands.remove_singleton::<DepthBuffer>();
+    commands.remove_singleton::<StagingRing>();
+    commands.remove_singleton::<Uploader>();
 }

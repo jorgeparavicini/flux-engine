@@ -10,7 +10,6 @@ use std::ops::Deref;
 #[derive(flux_ecs::Component)]
 pub struct CommandPools {
     pub graphics: vk::CommandPool,
-    pub transfer: vk::CommandPool,
 }
 
 pub fn create_command_pools(
@@ -24,21 +23,12 @@ pub fn create_command_pools(
         .queue_family_index(device.graphics.family);
 
     let graphics_pool = unsafe { device.create_command_pool(&info, None)? };
-
-    let info = vk::CommandPoolCreateInfo::default().queue_family_index(device.transfer.family);
-
-    let transfer_pool = unsafe { device.create_command_pool(&info, None)? };
-
     device
         .debug_utils
         .set_name(graphics_pool, "graphics command pool");
-    device
-        .debug_utils
-        .set_name(transfer_pool, "transfer command pool");
 
     commands.insert_singleton(CommandPools {
         graphics: graphics_pool,
-        transfer: transfer_pool,
     });
 
     Ok(())
@@ -53,7 +43,6 @@ pub fn destroy_command_pools(
 
     unsafe {
         device.destroy_command_pool(command_pools.graphics, None);
-        device.destroy_command_pool(command_pools.transfer, None);
     }
 
     commands.remove_singleton::<CommandPools>();

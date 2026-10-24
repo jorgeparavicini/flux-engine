@@ -6,7 +6,8 @@ use crate::pipeline::graphics::Pipeline;
 use crate::present::presenter::{Acquire, Frame, Presenter};
 use crate::render::commands::CommandBuffers;
 use crate::render::mesh::VulkanMesh;
-use crate::resource::depth::DepthBuffers;
+use crate::resource::depth::DepthBuffer;
+use crate::resource::upload::StagingRing;
 use ash::vk;
 use ash::vk::IndexType;
 use flux_ecs::Query;
@@ -24,6 +25,16 @@ pub fn presentation_outdated(world: &World) -> bool {
         .is_some_and(|flag| flag.0)
 }
 
+/// True once the presenter has been rebuilt for an outdated presentation.
+/// Its dependents are recreated only then, so a minimized window, whose
+/// rebuild is skipped, does not churn them every frame.
+pub fn presentation_rebuilt(world: &World) -> bool {
+    presentation_outdated(world)
+        && world
+            .singleton::<Presenter>()
+            .is_some_and(|presenter| !presenter.needs_rebuild())
+}
+
 pub fn clear_presentation_outdated(mut flag: Single<&mut PresentationOutdated>) {
     flag.0 = false;
 }
@@ -34,12 +45,13 @@ pub fn render(
     device: Single<&RenderDevice>,
     mut presenter: Single<&mut Presenter>,
     command_buffers: Single<&CommandBuffers>,
-    depth_buffers: Single<&DepthBuffers>,
+    depth_buffer: Single<&DepthBuffer>,
     pipeline: Single<&Pipeline>,
     meshes: Query<&VulkanMesh>,
     descriptors: Single<&Descriptors>,
     mut outdated: Single<&mut PresentationOutdated>,
     mut memory: Single<&mut GpuMemory>,
+    mut staging: Single<&mut StagingRing>,
 ) -> Result<(), RendererError> {
     if presenter.needs_rebuild() {
         outdated.0 = true;
@@ -53,7 +65,10 @@ pub fn render(
             return Ok(());
         }
     };
+    // The acquire waited on this slot's fence, so everything the slot last
+    // used is provably done.
     memory.advance(frame.slot);
+    staging.advance(frame.slot);
 
     let command_buffer = command_buffers.command_buffers[frame.image_index as usize];
     record_command_buffer(
@@ -61,7 +76,7 @@ pub fn render(
         command_buffer,
         &presenter,
         &frame,
-        &depth_buffers,
+        &depth_buffer,
         &pipeline,
         meshes,
         &descriptors,
@@ -99,7 +114,7 @@ fn record_command_buffer(
     command_buffer: vk::CommandBuffer,
     presenter: &Presenter,
     frame: &Frame,
-    depth_buffers: &DepthBuffers,
+    depth_buffer: &DepthBuffer,
     pipeline: &Pipeline,
     meshes: Query<&VulkanMesh>,
     descriptors: &Descriptors,
@@ -165,7 +180,7 @@ fn record_command_buffer(
             .clear_value(color_clear_value);
 
         let depth_attachment_info = vk::RenderingAttachmentInfo::default()
-            .image_view(depth_buffers.depth_image_view)
+            .image_view(depth_buffer.image.view())
             .image_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
             .load_op(vk::AttachmentLoadOp::CLEAR)
             .store_op(vk::AttachmentStoreOp::STORE)
@@ -191,10 +206,19 @@ fn record_command_buffer(
         );
 
         meshes.for_each(|mesh| {
-            device.cmd_bind_vertex_buffers(command_buffer, 0, &[mesh.vertex_buffer], &[0]);
-            device.cmd_bind_index_buffer(command_buffer, mesh.index_buffer, 0, IndexType::UINT32);
-
-            device.cmd_draw_indexed(command_buffer, mesh.num_indices, 1, 0, 0, 0);
+            device.cmd_bind_vertex_buffers(command_buffer, 0, &[mesh.vertex_buffer.raw()], &[0]);
+            match &mesh.indices {
+                Some(indices) => {
+                    device.cmd_bind_index_buffer(
+                        command_buffer,
+                        indices.buffer.raw(),
+                        0,
+                        IndexType::UINT32,
+                    );
+                    device.cmd_draw_indexed(command_buffer, indices.count, 1, 0, 0, 0);
+                }
+                None => device.cmd_draw(command_buffer, mesh.vertex_count, 1, 0, 0),
+            }
         });
 
         device.cmd_end_rendering(command_buffer);

@@ -69,7 +69,7 @@ fn create_descriptor_sets(
 
     for i in 0..image_count {
         let info = vk::DescriptorBufferInfo::default()
-            .buffer(uniform_buffers.buffers[i].buffer)
+            .buffer(uniform_buffers.buffers[i].raw())
             .offset(0)
             .range(size_of::<UniformBufferObject>() as u64);
 

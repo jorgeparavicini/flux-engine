@@ -7,6 +7,11 @@ use crate::present::presenter::FRAMES_IN_FLIGHT;
 use crate::resource::gpu_buffer::GpuBuffer;
 use crate::{MemoryUsage, device::logical::RenderDevice};
 use ash::vk;
+use flux_ecs::{Commands, Single};
+use log::debug;
+
+/// Bytes each frame slot's staging region holds.
+pub const STAGING_REGION_SIZE: u64 = 4 * 1024 * 1024;
 
 /// A staged span inside the ring, ready to be copied out of.
 #[derive(Debug, Clone, Copy)]
@@ -59,6 +64,7 @@ impl BumpRegions {
 
 /// One host-visible buffer serving CPU-to-GPU traffic for all in-flight
 /// frames, one region per frame slot.
+#[derive(flux_ecs::Component)]
 pub struct StagingRing {
     buffer: GpuBuffer,
     regions: BumpRegions,
@@ -118,6 +124,7 @@ impl StagingRing {
 /// add a timeline-semaphore handoff to the graphics queue (gated on
 /// `timeline_semaphore`) and queue-family ownership transfer when they
 /// arrive.
+#[derive(flux_ecs::Component)]
 pub struct Uploader {
     device: ash::Device,
     pool: vk::CommandPool,
@@ -141,16 +148,30 @@ impl Uploader {
         let pool = unsafe { device.create_command_pool(&info, None)? };
         device.debug_utils.set_name(pool, "uploader pool");
 
+        // Nothing here has reached the GPU yet, so failure unwinds destroy
+        // immediately; the pool takes its command buffer with it.
         let info = vk::CommandBufferAllocateInfo::default()
             .command_pool(pool)
             .level(vk::CommandBufferLevel::PRIMARY)
             .command_buffer_count(1);
-        let command_buffer = unsafe { device.allocate_command_buffers(&info)? }[0];
+        let command_buffer = match unsafe { device.allocate_command_buffers(&info) } {
+            Ok(buffers) => buffers[0],
+            Err(e) => {
+                unsafe { device.destroy_command_pool(pool, None) };
+                return Err(e.into());
+            }
+        };
         device
             .debug_utils
             .set_name(command_buffer, "uploader commands");
 
-        let fence = unsafe { device.create_fence(&vk::FenceCreateInfo::default(), None)? };
+        let fence = match unsafe { device.create_fence(&vk::FenceCreateInfo::default(), None) } {
+            Ok(fence) => fence,
+            Err(e) => {
+                unsafe { device.destroy_command_pool(pool, None) };
+                return Err(e.into());
+            }
+        };
         device.debug_utils.set_name(fence, "uploader fence");
 
         Ok(Self {
@@ -227,6 +248,18 @@ impl Drop for Uploader {
             self.device.destroy_command_pool(self.pool, None);
         }
     }
+}
+
+/// Creates the [`StagingRing`] and [`Uploader`] singletons.
+pub fn create_upload_path(
+    device: Single<&RenderDevice>,
+    mut memory: Single<&mut GpuMemory>,
+    mut commands: Commands,
+) -> Result<(), RendererError> {
+    debug!("Creating upload path");
+    commands.insert_singleton(StagingRing::new(&device, &mut memory, STAGING_REGION_SIZE)?);
+    commands.insert_singleton(Uploader::new(&device)?);
+    Ok(())
 }
 
 #[cfg(test)]

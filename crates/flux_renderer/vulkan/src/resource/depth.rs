@@ -1,79 +1,62 @@
 use crate::device::instance::Instance;
 use crate::device::logical::RenderDevice;
 use crate::error::RendererError;
+use crate::memory::allocator::MemoryUsage;
+use crate::memory::gpu_memory::GpuMemory;
 use crate::present::presenter::Presenter;
-use crate::resource::image::{create_image, create_image_view};
+use crate::resource::gpu_image::{GpuImage, GpuImageDesc};
 use ash::vk;
 use flux_ecs::Commands;
 use flux_ecs::Single;
 use log::debug;
 
+/// The forward pass's depth attachment, sized to the presenter.
 #[derive(flux_ecs::Component)]
-pub struct DepthBuffers {
-    pub depth_image: vk::Image,
-    pub depth_image_view: vk::ImageView,
-    pub depth_image_memory: vk::DeviceMemory,
-    pub depth_format: vk::Format,
+pub struct DepthBuffer {
+    pub image: GpuImage,
 }
 
-pub fn create_depth_buffers(
+/// Creates the [`DepthBuffer`] singleton for the presenter's current extent.
+/// Re-running it replaces the previous image, which retires on drop.
+pub fn create_depth_buffer(
     instance: Single<&Instance>,
     device: Single<&RenderDevice>,
     presenter: Single<&Presenter>,
+    mut memory: Single<&mut GpuMemory>,
     mut commands: Commands,
 ) -> Result<(), RendererError> {
-    debug!("Creating depth buffers");
+    debug!("Creating depth buffer");
 
-    let depth_format = get_depth_format(&instance, device.physical).unwrap();
+    let format =
+        depth_format(&instance, device.physical).ok_or(RendererError::NoSupportedDepthFormat)?;
 
-    let (depth_image, depth_image_memory) = create_image(
+    let image = GpuImage::new(
         &device,
-        presenter.extent.width,
-        presenter.extent.height,
-        depth_format,
-        vk::ImageTiling::OPTIMAL,
-        vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
-        vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        &mut memory,
+        GpuImageDesc {
+            extent: presenter.extent,
+            format,
+            tiling: vk::ImageTiling::OPTIMAL,
+            usage: vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+            aspects: vk::ImageAspectFlags::DEPTH,
+        },
+        MemoryUsage::GpuOnly,
+        "depth image",
     )?;
 
-    let depth_image_view = create_image_view(
-        &device,
-        depth_image,
-        depth_format,
-        vk::ImageAspectFlags::DEPTH,
-    )?;
-
-    device.debug_utils.set_name(depth_image, "depth image");
-    device
-        .debug_utils
-        .set_name(depth_image_view, "depth image view");
-    device
-        .debug_utils
-        .set_name(depth_image_memory, "depth image memory");
-
-    let depth_buffers = DepthBuffers {
-        depth_image,
-        depth_image_view,
-        depth_image_memory,
-        depth_format,
-    };
-
-    commands.insert_singleton(depth_buffers);
+    commands.insert_singleton(DepthBuffer { image });
 
     Ok(())
 }
 
-fn get_depth_format(
-    instance: &Instance,
-    physical_device: vk::PhysicalDevice,
-) -> Option<vk::Format> {
+fn depth_format(instance: &Instance, physical_device: vk::PhysicalDevice) -> Option<vk::Format> {
     let candidates = [
         vk::Format::D32_SFLOAT_S8_UINT,
         vk::Format::D32_SFLOAT,
         vk::Format::D24_UNORM_S8_UINT,
     ];
 
-    get_supported_format(
+    supported_format(
         instance,
         physical_device,
         &candidates,
@@ -82,16 +65,16 @@ fn get_depth_format(
     )
 }
 
-fn get_supported_format(
+fn supported_format(
     instance: &Instance,
     physical_device: vk::PhysicalDevice,
     candidates: &[vk::Format],
     tiling: vk::ImageTiling,
     features: vk::FormatFeatureFlags,
 ) -> Option<vk::Format> {
-    candidates.iter().cloned().find(|f| {
+    candidates.iter().copied().find(|&format| {
         let properties =
-            unsafe { instance.get_physical_device_format_properties(physical_device, *f) };
+            unsafe { instance.get_physical_device_format_properties(physical_device, format) };
 
         match tiling {
             vk::ImageTiling::LINEAR => properties.linear_tiling_features.contains(features),
@@ -99,20 +82,4 @@ fn get_supported_format(
             _ => false,
         }
     })
-}
-
-pub fn destroy_depth_buffers(
-    device: Single<&RenderDevice>,
-    depth_buffers: Single<&DepthBuffers>,
-    mut commands: Commands,
-) {
-    debug!("Destroying depth buffers");
-
-    unsafe {
-        device.destroy_image_view(depth_buffers.depth_image_view, None);
-        device.destroy_image(depth_buffers.depth_image, None);
-        device.free_memory(depth_buffers.depth_image_memory, None);
-    }
-
-    commands.remove_singleton::<DepthBuffers>();
 }

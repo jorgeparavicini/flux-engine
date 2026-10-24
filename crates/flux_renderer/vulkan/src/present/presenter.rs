@@ -3,7 +3,6 @@ use crate::device::logical::RenderDevice;
 use crate::error::RendererError;
 use crate::present::policy;
 use crate::present::surface::VulkanSurface;
-use crate::resource::image::create_image_view;
 use ash::vk::SwapchainCreateInfoKHR;
 use ash::{khr, vk};
 use flux_ecs::{Commands, Single};
@@ -364,9 +363,7 @@ impl SwapchainBundle {
 
         let views = images
             .iter()
-            .map(|&image| {
-                create_image_view(device, image, format.format, vk::ImageAspectFlags::COLOR)
-            })
+            .map(|&image| create_swapchain_view(device, image, format.format))
             .collect::<Result<Vec<_>, _>>()?;
 
         device.debug_utils.set_name(swapchain, "main swapchain");
@@ -438,6 +435,26 @@ pub fn rebuild_presenter(
 /// Removes the [`Presenter`] singleton; destruction happens in its `Drop`.
 pub fn destroy_presenter(mut commands: Commands) {
     commands.remove_singleton::<Presenter>();
+}
+
+/// A color view over a whole swapchain image.
+fn create_swapchain_view(
+    device: &RenderDevice,
+    image: vk::Image,
+    format: vk::Format,
+) -> Result<vk::ImageView, vk::Result> {
+    let subresource_range = vk::ImageSubresourceRange::default()
+        .aspect_mask(vk::ImageAspectFlags::COLOR)
+        .level_count(1)
+        .layer_count(1);
+
+    let info = vk::ImageViewCreateInfo::default()
+        .image(image)
+        .view_type(vk::ImageViewType::TYPE_2D)
+        .format(format)
+        .subresource_range(subresource_range);
+
+    unsafe { device.create_image_view(&info, None) }
 }
 
 /// The slot that follows `current`, wrapping at `FRAMES_IN_FLIGHT`.

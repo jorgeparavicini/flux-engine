@@ -1,14 +1,14 @@
 use crate::device::logical::RenderDevice;
-use crate::render::commands::CommandPools;
-use crate::resource::buffer::{copy_buffer, create_buffer};
+use crate::error::RendererError;
+use crate::memory::allocator::MemoryUsage;
+use crate::memory::gpu_memory::GpuMemory;
+use crate::resource::gpu_buffer::GpuBuffer;
+use crate::resource::upload::{StagingRing, Uploader};
 use ash::vk;
-use flux_ecs::Commands;
-use flux_ecs::Query;
-use flux_ecs::Single;
+use flux_ecs::{Commands, Entity, Query, Single};
 use flux_renderer_api::mesh::VertexFormat::Float32x3;
 use flux_renderer_api::mesh::{Mesh, Vertex, VertexAttribute, VertexLayout};
 use log::debug;
-use std::ptr::copy_nonoverlapping;
 
 #[repr(C)]
 pub struct CoolVertex {
@@ -42,163 +42,136 @@ impl Vertex for CoolVertex {
 #[derive(flux_ecs::Component)]
 pub struct MeshComponent(pub Mesh<CoolVertex>);
 
+/// A mesh's GPU-side buffers, living on the same entity as its
+/// [`MeshComponent`]; despawning the entity frees them.
 #[derive(flux_ecs::Component)]
 pub struct VulkanMesh {
-    pub vertex_buffer: vk::Buffer,
-    pub vertex_buffer_memory: vk::DeviceMemory,
-    pub index_buffer: vk::Buffer,
-    pub index_buffer_memory: vk::DeviceMemory,
-    pub num_indices: u32,
+    pub vertex_buffer: GpuBuffer,
+    pub vertex_count: u32,
+    pub indices: Option<IndexBuffer>,
 }
 
-pub fn create_buffers(
+pub struct IndexBuffer {
+    pub buffer: GpuBuffer,
+    pub count: u32,
+}
+
+/// Uploads every mesh in one transfer batch. Startup-shaped: the staging
+/// space comes from frame slot 0, which the first frame recycles.
+pub fn upload_meshes(
     device: Single<&RenderDevice>,
-    command_pools: Single<&CommandPools>,
-    // TODO: Needs to be able to be generalized
-    meshes: Query<&MeshComponent>,
+    mut memory: Single<&mut GpuMemory>,
+    mut staging: Single<&mut StagingRing>,
+    mut uploader: Single<&mut Uploader>,
+    meshes: Query<(Entity, &MeshComponent)>,
     mut commands: Commands,
-) {
-    debug!("Creating mesh buffers");
+) -> Result<(), RendererError> {
+    debug!("Uploading meshes");
 
-    meshes.for_each(|mesh| {
-        let mesh = &mesh.0;
-        let (vertex_buffer, vertex_buffer_memory) =
-            create_vertex_buffer(&device, &command_pools, mesh)
-                .expect("Failed to create vertex buffer");
+    uploader.begin()?;
 
-        let (index_buffer, index_buffer_memory) =
-            create_index_buffer(&device, &command_pools, mesh)
-                .expect("Failed to create index buffer")
-                .unwrap_or((vk::Buffer::null(), vk::DeviceMemory::null()));
-
-        device
-            .debug_utils
-            .set_name(vertex_buffer, "mesh vertex buffer");
-        device
-            .debug_utils
-            .set_name(vertex_buffer_memory, "mesh vertex buffer memory");
-        if index_buffer != vk::Buffer::null() {
-            device
-                .debug_utils
-                .set_name(index_buffer, "mesh index buffer");
-            device
-                .debug_utils
-                .set_name(index_buffer_memory, "mesh index buffer memory");
+    let mut gpu_meshes = Vec::new();
+    let mut result = Ok(());
+    meshes.for_each(|(entity, mesh)| {
+        if result.is_ok() {
+            match upload_mesh(&device, &mut memory, &mut staging, &mut uploader, &mesh.0) {
+                Ok(gpu_mesh) => gpu_meshes.push((entity, gpu_mesh)),
+                Err(e) => result = Err(e),
+            }
         }
-
-        let num_indices = mesh
-            .indices
-            .as_ref()
-            .map_or(0, |indices| indices.len() as u32);
-
-        commands.spawn((VulkanMesh {
-            vertex_buffer,
-            vertex_buffer_memory,
-            index_buffer,
-            index_buffer_memory,
-            num_indices,
-        },));
     });
+    result?;
+
+    uploader.submit_and_wait()?;
+
+    for (entity, gpu_mesh) in gpu_meshes {
+        commands.insert(entity, gpu_mesh);
+    }
+
+    Ok(())
 }
 
-fn create_vertex_buffer(
+fn upload_mesh(
     device: &RenderDevice,
-    command_pools: &CommandPools,
+    memory: &mut GpuMemory,
+    staging: &mut StagingRing,
+    uploader: &mut Uploader,
     mesh: &Mesh<CoolVertex>,
-) -> Result<(vk::Buffer, vk::DeviceMemory), vk::Result> {
-    debug!("Creating vertex buffer for mesh {:?}", mesh);
-
-    let size = Mesh::<CoolVertex>::vertex_size() as u64 * mesh.vertices.len() as u64;
-
-    let (staging_buffer, staging_buffer_memory) = create_buffer(
+) -> Result<VulkanMesh, RendererError> {
+    // SAFETY: `CoolVertex` is `repr(C)` with only `f32` fields, so it has no
+    // padding bytes.
+    let vertex_bytes = unsafe { as_bytes(&mesh.vertices) };
+    let vertex_buffer = upload_buffer(
         device,
-        size,
-        vk::BufferUsageFlags::TRANSFER_SRC,
-        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        memory,
+        staging,
+        uploader,
+        vertex_bytes,
+        vk::BufferUsageFlags::VERTEX_BUFFER,
+        "mesh vertex buffer",
     )?;
 
-    let memory =
-        unsafe { device.map_memory(staging_buffer_memory, 0, size, vk::MemoryMapFlags::empty())? };
+    let indices = match mesh.indices.as_deref() {
+        Some(indices) if !indices.is_empty() => {
+            // SAFETY: `u32` has no padding bytes.
+            let index_bytes = unsafe { as_bytes(indices) };
+            let buffer = upload_buffer(
+                device,
+                memory,
+                staging,
+                uploader,
+                index_bytes,
+                vk::BufferUsageFlags::INDEX_BUFFER,
+                "mesh index buffer",
+            )?;
+            Some(IndexBuffer {
+                buffer,
+                count: indices.len() as u32,
+            })
+        }
+        _ => None,
+    };
 
-    unsafe {
-        copy_nonoverlapping(mesh.vertices.as_ptr(), memory.cast(), mesh.vertices.len());
-        device.unmap_memory(staging_buffer_memory);
-    }
-
-    let (vertex_buffer, vertex_buffer_memory) = create_buffer(
-        device,
-        size,
-        vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
-        vk::MemoryPropertyFlags::DEVICE_LOCAL,
-    )?;
-
-    copy_buffer(device, command_pools, staging_buffer, vertex_buffer, size)?;
-
-    unsafe {
-        device.destroy_buffer(staging_buffer, None);
-        device.free_memory(staging_buffer_memory, None);
-    }
-
-    Ok((vertex_buffer, vertex_buffer_memory))
+    Ok(VulkanMesh {
+        vertex_buffer,
+        vertex_count: mesh.vertices.len() as u32,
+        indices,
+    })
 }
 
-fn create_index_buffer(
+/// Creates a GPU-only buffer and records the copy of `bytes` into it.
+fn upload_buffer(
     device: &RenderDevice,
-    command_pools: &CommandPools,
-    mesh: &Mesh<CoolVertex>,
-) -> Result<Option<(vk::Buffer, vk::DeviceMemory)>, vk::Result> {
-    debug!("Creating index buffer for mesh {:?}", mesh);
+    memory: &mut GpuMemory,
+    staging: &mut StagingRing,
+    uploader: &mut Uploader,
+    bytes: &[u8],
+    usage: vk::BufferUsageFlags,
+    name: &str,
+) -> Result<GpuBuffer, RendererError> {
+    let slice = staging.stage(0, bytes).ok_or(RendererError::StagingFull {
+        requested: bytes.len() as u64,
+    })?;
 
-    let Some(indices) = mesh
-        .indices
-        .as_deref()
-        .filter(|indices| !indices.is_empty())
-    else {
-        return Ok(None);
-    };
-
-    let size = size_of_val(indices);
-
-    let (staging_buffer, staging_buffer_memory) = create_buffer(
+    let buffer = GpuBuffer::new(
         device,
-        size as u64,
-        vk::BufferUsageFlags::TRANSFER_SRC,
-        vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        memory,
+        bytes.len() as u64,
+        usage | vk::BufferUsageFlags::TRANSFER_DST,
+        MemoryUsage::GpuOnly,
+        name,
     )?;
+    uploader.copy_buffer(slice, buffer.raw(), 0);
 
-    let memory = unsafe {
-        device.map_memory(
-            staging_buffer_memory,
-            0,
-            size as u64,
-            vk::MemoryMapFlags::empty(),
-        )?
-    };
+    Ok(buffer)
+}
 
-    unsafe {
-        copy_nonoverlapping(indices.as_ptr(), memory.cast(), indices.len());
-        device.unmap_memory(staging_buffer_memory);
-    }
-
-    let (index_buffer, index_buffer_memory) = create_buffer(
-        device,
-        size as u64,
-        vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER,
-        vk::MemoryPropertyFlags::DEVICE_LOCAL,
-    )?;
-
-    copy_buffer(
-        device,
-        command_pools,
-        staging_buffer,
-        index_buffer,
-        size as u64,
-    )?;
-
-    unsafe {
-        device.destroy_buffer(staging_buffer, None);
-        device.free_memory(staging_buffer_memory, None);
-    }
-
-    Ok(Some((index_buffer, index_buffer_memory)))
+/// The raw bytes of `values`.
+///
+/// # Safety
+///
+/// `T` must have no padding bytes; reading padding is reading uninitialized
+/// memory.
+const unsafe fn as_bytes<T>(values: &[T]) -> &[u8] {
+    unsafe { std::slice::from_raw_parts(values.as_ptr().cast(), size_of_val(values)) }
 }
