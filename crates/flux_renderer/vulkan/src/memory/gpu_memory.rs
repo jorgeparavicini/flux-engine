@@ -24,7 +24,7 @@ impl GpuMemory {
     pub fn new(device: &RenderDevice) -> Self {
         Self {
             allocator: DedicatedAllocator::new(device),
-            retire: RetireQueue::new((**device).clone(), FRAMES_IN_FLIGHT),
+            retire: RetireQueue::new(device.raw_clone(), FRAMES_IN_FLIGHT),
         }
     }
 

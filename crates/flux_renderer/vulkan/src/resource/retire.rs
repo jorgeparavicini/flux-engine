@@ -3,10 +3,7 @@
 
 use crate::memory::allocator::{Allocation, GpuAllocator};
 use ash::vk;
-use std::{
-    option::IterMut,
-    sync::mpsc::{Receiver, Sender, channel},
-};
+use std::sync::mpsc::{Receiver, Sender, channel};
 
 /// Slot-tagged holding bins for retired items. Vulkan-free; the caller
 /// supplies the frame slot whose fence wait just completed.

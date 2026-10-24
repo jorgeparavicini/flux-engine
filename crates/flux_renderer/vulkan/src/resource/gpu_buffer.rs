@@ -117,6 +117,30 @@ impl GpuBuffer {
             );
         }
     }
+
+    /// Copies the buffer's whole contents out of the mapping.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the buffer is not host-visible; reading GPU-only memory
+    /// is a caller bug.
+    #[must_use]
+    pub fn read_all(&self) -> Vec<u8> {
+        let Some(mapped) = self
+            .allocation
+            .as_ref()
+            .and_then(|allocation| allocation.mapped)
+        else {
+            panic!("read_all requires host-visible memory; this buffer has no mapping");
+        };
+
+        let mut dst = vec![0u8; self.size as usize];
+        unsafe {
+            ptr::copy_nonoverlapping(mapped.as_ptr(), dst.as_mut_ptr(), dst.len());
+        }
+
+        dst
+    }
 }
 
 impl Drop for GpuBuffer {

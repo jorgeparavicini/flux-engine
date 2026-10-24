@@ -121,6 +121,13 @@ impl RenderDevice {
         Ok((instance, device))
     }
 
+    /// An owned clone of the device's function table, for types whose `Drop`
+    /// must work without borrowing this device.
+    #[must_use]
+    pub fn raw_clone(&self) -> ash::Device {
+        self.raw.clone()
+    }
+
     /// Blocks until the device finishes all submitted work. Shutdown-path
     /// only; the frame path synchronizes with fences.
     pub fn wait_idle(&self) {

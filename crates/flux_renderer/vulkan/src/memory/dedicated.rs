@@ -24,7 +24,7 @@ pub struct DedicatedAllocator {
 impl DedicatedAllocator {
     pub fn new(device: &RenderDevice) -> Self {
         Self {
-            device: (**device).clone(),
+            device: device.raw_clone(),
             memory_properties: device.capabilities.memory,
             allocations: 0,
         }

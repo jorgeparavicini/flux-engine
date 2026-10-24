@@ -111,7 +111,7 @@ impl Presenter {
         }
 
         Ok(Self {
-            device: (**device).clone(),
+            device: device.raw_clone(),
             surface_loader,
             swapchain_loader,
             surface,
