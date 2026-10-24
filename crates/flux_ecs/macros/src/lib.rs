@@ -7,7 +7,7 @@ use syn::{DeriveInput, parse_macro_input};
 ///
 /// The type must be `Send + Sync` unless it opts out:
 ///
-/// - `#[component(non_send)]` — the component is confined to the thread that
+/// - `#[component(non_send)]`: the component is confined to the thread that
 ///   created it (for types like window or GPU handles).
 ///
 /// Generic types are not supported: every instantiation would share one
@@ -195,5 +195,5 @@ pub fn derive_system_param(input: TokenStream) -> TokenStream {
             }
         }
     }
-    .into()
+        .into()
 }

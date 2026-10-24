@@ -363,7 +363,7 @@ mod tests {
                 0,
             )
         };
-        // nothing to assert beyond "no crash / no UB" — miri checks the rest
+        // nothing to assert beyond "no crash / no UB"; miri checks the rest
     }
 
     // ---------------------------------------------------------------- guardrails

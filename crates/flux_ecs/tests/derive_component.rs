@@ -33,7 +33,7 @@ enum Phase {
     Running,
 }
 
-/// `Rc` is neither Send nor Sync — this only compiles because of the attribute.
+/// `Rc` is neither Send nor Sync; this only compiles because of the attribute.
 #[derive(Component)]
 #[component(non_send)]
 struct VulkanHandle(#[allow(dead_code)] Rc<u8>);
@@ -46,7 +46,7 @@ struct PinnedAnyway(#[allow(dead_code)] u32);
 mod inner {
     use flux_ecs::Component;
 
-    /// Same type NAME as the root `Position` — must get a different key.
+    /// Same type NAME as the root `Position`, so it must get a different key.
     #[derive(Component)]
     pub struct Position;
 

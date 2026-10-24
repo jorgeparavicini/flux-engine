@@ -10,7 +10,7 @@ use crate::registry::Registry;
 ///
 /// # Safety
 ///
-/// Implementors guarantee: `ids` and `write` must agree — `write` calls
+/// Implementors guarantee: `ids` and `write` must agree: `write` calls
 /// `put` exactly once per component, in the same order as `ids`, with a
 /// pointer valid for reading that component's type, and must not use the
 /// values afterwards (ownership transfers through `put`).

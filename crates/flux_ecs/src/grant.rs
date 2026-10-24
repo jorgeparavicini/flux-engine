@@ -13,7 +13,7 @@ pub struct AccessGrant {
     version: u64,
     /// Mutable-claim tracking is a debug net: the only `QueryData`
     /// implementations live in this crate, so a duplicate mutable fetch is a
-    /// crate bug — caught by debug builds, tests, and miri. Release builds
+    /// crate bug, caught by debug builds, tests, and miri. Release builds
     /// keep the permission checks and skip the claim bookkeeping.
     #[cfg(debug_assertions)]
     spent: Vec<(ChunkId, ComponentId)>,

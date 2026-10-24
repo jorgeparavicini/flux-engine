@@ -1,8 +1,8 @@
 //! Transform propagation down a deep hierarchy: a serial recursive walk
 //! against the per-depth parallel pass. The ratio is the propagation speedup.
 //!
-//! The tree is built wide rather than bushy — a bounded number of parents per
-//! level, each with a large fan-out — because every distinct parent is its own
+//! The tree is built wide rather than bushy (a bounded number of parents per
+//! level, each with a large fan-out) because every distinct parent is its own
 //! archetype (and so its own chunk). A balanced fine-grained tree of this size
 //! would allocate one 64 KiB chunk per interior node.
 

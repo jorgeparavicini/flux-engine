@@ -41,8 +41,8 @@ pub(crate) struct Chunks {
 
 // SAFETY: shared (`&Chunks`) access exposes only atomic version stamps
 // (thread-safe) and immutable reads of the base pointers and layout metadata.
-// Structural mutation — create/destroy/set_len, which move the pointers and
-// lengths — requires `&mut Chunks`, so it cannot occur while the value is
+// Structural mutation (create/destroy/set_len, which move the pointers and
+// lengths) requires `&mut Chunks`, so it cannot occur while the value is
 // shared. Column data reached through those base pointers is handed out as
 // grant-checked slices whose disjointness the scheduler proves before sharing.
 unsafe impl Sync for Chunks {}

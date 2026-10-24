@@ -120,7 +120,7 @@ pub(crate) unsafe fn component_ptr(
 /// Removes a row. If `drop_values`, runs each column's drop_fn on the
 /// removed values; otherwise ownership has already moved elsewhere. If the
 /// removed row was not the tail, the tail row (every column + entity) is
-/// moved into its place and that entity is returned — the caller must
+/// moved into its place and that entity is returned; the caller must
 /// update its slot. An emptied chunk is destroyed and removed from `arch`.
 ///
 /// Safety: row < len; the row's sized columns are initialized (when

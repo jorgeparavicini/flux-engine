@@ -129,8 +129,8 @@ impl Entities {
     ///
     /// # Panics
     ///
-    /// If the prediction is stale — the slot is alive, the generation does
-    /// not match, or the index skips ahead of the slots.
+    /// If the prediction is stale (the slot is alive, the generation does
+    /// not match, or the index skips ahead of the slots).
     pub(crate) fn alloc_specific(&mut self, entity: Entity) {
         let index = entity.index as usize;
         if index == self.slots.len() {
@@ -189,7 +189,7 @@ mod tests {
         NonZeroU32::new(g).expect("test generation must be non-zero")
     }
 
-    /// Build a handle by hand — only possible inside the module. Used to
+    /// Build a handle by hand, which is only possible inside the module. Used to
     /// probe stale / out-of-range handles the public API can't construct.
     fn handle(index: u32, generation: u32) -> Entity {
         Entity {
@@ -296,7 +296,7 @@ mod tests {
     #[test]
     fn double_dealloc_does_not_duplicate_free_list_entry() {
         // If a double dealloc pushed the index twice, two later allocs would
-        // hand out the SAME index to two live entities — catastrophic aliasing.
+        // hand out the SAME index to two live entities: catastrophic aliasing.
         let mut e = Entities::new();
         let a = e.alloc();
         e.dealloc(a);
@@ -547,7 +547,7 @@ mod tests {
     #[test]
     fn alloc_specific_tolerates_free_list_growth_in_between() {
         // A prediction stays valid even when other slots are freed before it
-        // is redeemed — the case a command queue creates by interleaving
+        // is redeemed, the case a command queue creates by interleaving
         // despawns and reserved spawns.
         let mut e = Entities::new();
         let a = e.alloc();

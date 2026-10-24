@@ -24,7 +24,7 @@ impl ComponentKey {
     /// Computes the key for a type path.
     ///
     /// `path` must be the type's defining module path followed by `::` and the
-    /// bare type name, e.g. `my_crate::physics::Position` — no leading `::`,
+    /// bare type name, e.g. `my_crate::physics::Position`, with no leading `::` and
     /// no generic arguments. `#[derive(Component)]` produces this form via
     /// `concat!(module_path!(), "::", "TypeName")`; manual `Component`
     /// implementations must use the same form.
@@ -116,7 +116,7 @@ mod tests {
 
     #[test]
     fn empty_path_hashes_to_the_fnv_offset_basis() {
-        // FNV-1a of zero bytes is the offset basis by definition — this pins
+        // FNV-1a of zero bytes is the offset basis by definition; this pins
         // the constant and catches an off-by-one in the loop.
         assert_eq!(ComponentKey::from_path("").0, FNV_OFFSET_BASIS);
     }

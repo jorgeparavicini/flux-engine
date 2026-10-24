@@ -636,6 +636,7 @@ dependencies = [
  "flux_renderer_macros",
  "glam",
  "log",
+ "pretty_env_logger",
  "raw-window-handle",
  "shaderc",
  "thiserror 2.0.12",

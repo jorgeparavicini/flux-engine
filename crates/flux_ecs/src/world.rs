@@ -307,9 +307,9 @@ impl World {
     /// Propagates a value down the `ChildOf` tree, one parallel pass per depth.
     ///
     /// Each root's `W` is `root(&its L)`; each child's is
-    /// `combine(&parent W, &its L)`. A depth level is computed in parallel —
+    /// `combine(&parent W, &its L)`. A depth level is computed in parallel:
     /// every entity reads its parent's finished `W` from the level above and
-    /// writes its own — so `combine` must depend only on those two inputs.
+    /// writes its own, so `combine` must depend only on those two inputs.
     /// Entities missing `L` or `W` are skipped.
     pub fn propagate<L: Component, W: Component>(
         &mut self,

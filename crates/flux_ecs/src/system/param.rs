@@ -243,7 +243,7 @@ impl<D: SingleDataMut> DerefMut for Single<'_, D> {
     }
 }
 
-/// Walks `state`'s matched chunks under a grant minted from `declared` — the
+/// Walks `state`'s matched chunks under a grant minted from `declared`; the
 /// parameter's own declaration, so an under-declared access fails the fetch.
 /// `None` when no entity matches; panics when more than one does.
 fn unique_row<'w, D, F>(
@@ -541,7 +541,7 @@ impl CommandQueue {
 impl Commands<'_> {
     /// Spawns an entity with the bundle's components, returning its id.
     ///
-    /// The id is usable immediately — for instance in further commands — but
+    /// The id is usable immediately, for instance in further commands, but
     /// the entity is alive only once the commands apply.
     pub fn spawn<B: crate::Bundle + Send + 'static>(&mut self, bundle: B) -> Entity {
         let entity = self.queue.reserve();
@@ -786,7 +786,7 @@ mod tests {
 
     #[test]
     fn single_finds_a_manually_spawned_unique_component() {
-        // Uniqueness is what Single requires — not that insert_singleton was used.
+        // Uniqueness is what Single requires, not that insert_singleton was used.
         fn read(time: Single<&Time>, query: Query<&mut A>) {
             let t = time.0;
             query.for_each(|a| a.0 = t);

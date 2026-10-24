@@ -45,8 +45,8 @@ pub trait System {
 ///
 /// Implemented for every function of up to eight system-parameter arguments
 /// (queries, locals).
-/// A function whose parameters conflict — two of them accessing the same
-/// component with at least one write — is rejected during code generation.
+/// A function whose parameters conflict (two of them accessing the same
+/// component with at least one write) is rejected during code generation.
 /// What a system may return.
 pub trait SystemOutput {
     /// One run's outcome; failures carry a report message.
@@ -142,7 +142,7 @@ where
     fn run(&mut self, world: &mut World) {
         self.initialize(world);
         let version = world.bump_version();
-        // SAFETY: serial execution — nothing else accesses the world.
+        // SAFETY: serial execution; nothing else accesses the world.
         unsafe { self.run_deferred(&world.cells(), version) };
         self.apply_deferred(world);
     }
@@ -531,7 +531,7 @@ mod tests {
     #[test]
     fn each_run_stamps_at_its_own_version() {
         // Two writer runs with a reader run between and after: the reader
-        // must observe each writer run separately — which requires every run
+        // must observe each writer run separately, which requires every run
         // to advance the world version.
         fn writer(query: Query<&mut A>) {
             query.for_each(|a| a.0 += 1);

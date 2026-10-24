@@ -40,7 +40,7 @@ impl ChunkView<'_> {
 /// signatures `columns` can fully serve.
 #[diagnostic::on_unimplemented(
     message = "`{Self}` cannot be queried",
-    note = "query components by reference — `&T` or `&mut T` — or use `Entity`, `Option<&T>`, or a tuple of these"
+    note = "query components by reference (`&T` or `&mut T`) or use `Entity`, `Option<&T>`, or a tuple of these"
 )]
 pub unsafe trait QueryData {
     /// Access this data declares, checked for self-conflicts at compile

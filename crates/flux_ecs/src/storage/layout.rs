@@ -352,7 +352,7 @@ mod tests {
     #[test]
     fn offsets_are_indexed_by_sorted_id_not_by_placement() {
         // B1 (align 1) registered before B8 (align 8), so B1 has the lower id
-        // and comes first in `components` — but descending-align placement puts
+        // and comes first in `components`, but descending-align placement puts
         // B8's column physically first. offsets[] must follow id order.
         let mut fresh = Registry::new();
         let low_align_low_id = fresh.register::<B1>();

@@ -6,7 +6,7 @@ use std::marker::PhantomData;
 /// Passes chunks whose `T` column was written since the reader's last run.
 ///
 /// Detection is chunk-granular and conservative: every row that changed is
-/// included, and rows that did not change may be included with them — a chunk
+/// included, and rows that did not change may be included with them; a chunk
 /// reappears whole. Taking mutable access counts as a write, whether or not
 /// a value was stored.
 pub struct Changed<T>(PhantomData<fn() -> T>);
